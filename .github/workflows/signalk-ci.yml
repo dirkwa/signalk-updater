@@ -13,10 +13,10 @@ name: SignalK Plugin CI
 on:
   push:
     branches:
-      - "**"
+      - '**'
   pull_request:
     branches:
-      - "**"
+      - '**'
   workflow_dispatch:
     inputs:
       test-command:
@@ -30,14 +30,14 @@ on:
         default: npm run build --if-present
         type: string
       format-check-command:
-        description: "Optional blocking format check, e.g. npm run ci-lint"
+        description: 'Optional blocking format check, e.g. npm run ci-lint'
         required: false
-        default: ""
+        default: ''
         type: string
       coverage-command:
-        description: "Optional coverage command (replaces the test run)"
+        description: 'Optional coverage command (replaces the test run)'
         required: false
-        default: ""
+        default: ''
         type: string
       node-versions:
         description: 'JSON array of Node versions, example: ["24"]'
@@ -55,7 +55,7 @@ on:
         default: false
         type: boolean
       signalk-server-versions:
-        description: "JSON array of signalk-server versions for integration testing"
+        description: 'JSON array of signalk-server versions for integration testing'
         required: false
         default: '["latest"]'
         type: string
