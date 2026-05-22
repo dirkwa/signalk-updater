@@ -1,0 +1,28 @@
+{
+  "name": "signalk-update",
+  "version": "0.0.1",
+  "description": "Update/upgrade plugin for SignalK Node Server (skeleton — implementation pending)",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"no tests yet\" && exit 0"
+  },
+  "keywords": [
+    "signalk-node-server-plugin",
+    "signalk-category-utility"
+  ],
+  "author": "Dirk",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dirkwa/signalk-update.git"
+  },
+  "bugs": {
+    "url": "https://github.com/dirkwa/signalk-update/issues"
+  },
+  "homepage": "https://github.com/dirkwa/signalk-update#readme",
+  "files": [
+    "index.js",
+    "README.md",
+    "LICENSE"
+  ]
+}
