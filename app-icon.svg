@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="SignalK Updater">
+  <!--
+    SignalK Updater app icon.
+    Original artwork by Dirk Wahrheit, contributed under Apache-2.0 along
+    with the rest of the signalk-updater repository. Free to redistribute
+    by the Signal K project and its appstore without further attribution.
+
+    Design intent:
+      - Background gradient evokes deep water + sky (the marine context).
+      - Circular arrow = update/refresh in motion (clockwise from 3-o'clock).
+      - Upward chevron at the center = forward progress, "newer version".
+      - Single-color foreground keeps the icon legible at favicon size.
+  -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1c6fe1"/>
+      <stop offset="1" stop-color="#0b3d83"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="128" height="128" rx="24" fill="url(#bg)"/>
+
+  <!-- Circular update arrow (open at top-right; arrowhead pointing toward 1-o'clock) -->
+  <path d="M 30 64
+           A 34 34 0 1 1 64 98"
+        stroke="#ffffff" stroke-width="9"
+        stroke-linecap="round" fill="none"/>
+  <polygon points="92,42 74,42 92,60" fill="#ffffff"/>
+
+  <!-- Center upward chevron -->
+  <path d="M 50 70 L 64 56 L 78 70"
+        stroke="#ffffff" stroke-width="8"
+        stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+</svg>
