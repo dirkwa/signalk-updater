@@ -9,7 +9,10 @@
       - Background gradient evokes deep water + sky (the marine context).
       - Circular arrow = update/refresh in motion (clockwise from 3-o'clock).
       - Upward chevron at the center = forward progress, "newer version".
-      - Single-color foreground keeps the icon legible at favicon size.
+      - Fills the whole 128x128 viewBox edge-to-edge (no internal rx).
+        The SignalK admin UI scales the icon with background-size:cover
+        inside its own tile; any internal rounded-rect would leave
+        corner artifacts where the tile's bg shows through.
   -->
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
@@ -18,7 +21,7 @@
     </linearGradient>
   </defs>
 
-  <rect width="128" height="128" rx="24" fill="url(#bg)"/>
+  <rect width="128" height="128" fill="url(#bg)"/>
 
   <!-- Circular update arrow (open at top-right; arrowhead pointing toward 1-o'clock) -->
   <path d="M 30 64
