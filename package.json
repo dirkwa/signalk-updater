@@ -27,7 +27,7 @@
   "signalk-plugin-enabled-by-default": false,
   "signalk": {
     "displayName": "Updater",
-    "appIcon": "./app-icon.svg",
+    "appIcon": "app-icon.svg",
     "webapp": {
       "name": "Updater",
       "description": "Open the SignalK Updater Console"
@@ -38,8 +38,7 @@
   },
   "files": [
     "plugin/**/*",
-    "public/**/*",
-    "app-icon.svg"
+    "public/**/*"
   ],
   "scripts": {
     "build:plugin": "rimraf plugin && tsc -p tsconfig.json",
