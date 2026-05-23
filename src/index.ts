@@ -88,18 +88,34 @@ export default function pluginFactory(app: ServerAPI): Plugin {
         app.setPluginError(`update registration failed: ${errMsg(err)}`);
       }
 
-      // Sanity check the container is actually running. If not, surface a clear error to the
-      // admin UI but DO NOT throw — the plugin must never take signalk-server down.
+      // Sanity check the peer container is actually reachable. We HTTP-probe its own
+      // /api/health rather than calling containers.getState() — signalk-container's API
+      // prefixes container names with `sk-` (the plugin-engine convention), and our
+      // peer containers don't carry that prefix (they're systemd-managed peers, not
+      // plugin-managed children). A direct health probe also catches the case where
+      // the container is technically "running" but stuck/unhealthy. Never throw —
+      // the plugin must never take signalk-server down.
       try {
-        const containerState = await containers.getState(CONTAINER_NAME);
-        if (containerState !== 'running') {
+        const healthUrl = `${state.config.externalUrl.replace(/\/$/, '')}/api/health`;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 5000);
+        let reachable = false;
+        try {
+          const res = await fetch(healthUrl, { signal: controller.signal });
+          reachable = res.ok;
+        } catch {
+          reachable = false;
+        } finally {
+          clearTimeout(timer);
+        }
+        if (!reachable) {
           app.setPluginError(
-            `${CONTAINER_NAME} is not running (state=${containerState}). ` +
-              'Run the bash installer or `systemctl --user start signalk-updater-server.service`.',
+            `${CONTAINER_NAME} is not reachable at ${healthUrl}. ` +
+              `Run the bash installer or \`systemctl --user start ${CONTAINER_NAME}.service\`.`,
           );
         }
       } catch (err) {
-        app.setPluginError(`could not read ${CONTAINER_NAME} state: ${errMsg(err)}`);
+        app.setPluginError(`could not probe ${CONTAINER_NAME}: ${errMsg(err)}`);
       }
     },
 
