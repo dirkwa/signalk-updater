@@ -1,37 +1,47 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="SignalK Updater">
   <!--
-    SignalK Updater app icon.
-    Original artwork by Dirk Wahrheit, contributed under Apache-2.0 along
-    with the rest of the signalk-updater repository. Free to redistribute
-    by the Signal K project and its appstore without further attribution.
+    SignalK Updater app icon — SVG source for the rendered PNG.
 
-    Design intent:
-      - Background gradient evokes deep water + sky (the marine context).
-      - Circular arrow = update/refresh in motion (clockwise from 3-o'clock).
-      - Upward chevron at the center = forward progress, "newer version".
-      - Fills the whole 128x128 viewBox edge-to-edge (no internal rx).
-        The SignalK admin UI scales the icon with background-size:cover
-        inside its own tile; any internal rounded-rect would leave
-        corner artifacts where the tile's bg shows through.
+    Original artwork by Dirk Wahrheit, contributed under Apache-2.0
+    along with the rest of the signalk-updater repository. Free to
+    redistribute by the Signal K project and its appstore without
+    further attribution.
+
+    Design notes:
+      - Rendered to app-icon.png at build time. The PNG sits in the
+        admin-UI tile against a SignalK-blue (#003399) background; the
+        four corners outside the rx=20 rounded shape are filled with
+        white so they blend with the surrounding card, not the tile.
+      - Blue gradient evokes deep water + sky.
+      - Circular update arrow + center upward chevron = "newer
+        version, click to apply".
   -->
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#1c6fe1"/>
       <stop offset="1" stop-color="#0b3d83"/>
     </linearGradient>
+    <clipPath id="rounded">
+      <rect x="0" y="0" width="128" height="128" rx="20"/>
+    </clipPath>
   </defs>
 
-  <rect width="128" height="128" fill="url(#bg)"/>
+  <!-- White corners (entire viewBox is white, then the rounded gradient is clipped on top). -->
+  <rect width="128" height="128" fill="#ffffff"/>
 
-  <!-- Circular update arrow (open at top-right; arrowhead pointing toward 1-o'clock) -->
-  <path d="M 30 64
-           A 34 34 0 1 1 64 98"
-        stroke="#ffffff" stroke-width="9"
-        stroke-linecap="round" fill="none"/>
-  <polygon points="92,42 74,42 92,60" fill="#ffffff"/>
+  <!-- Rounded gradient body. -->
+  <g clip-path="url(#rounded)">
+    <rect width="128" height="128" fill="url(#bg)"/>
 
-  <!-- Center upward chevron -->
-  <path d="M 50 70 L 64 56 L 78 70"
-        stroke="#ffffff" stroke-width="8"
-        stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <!-- Circular update arrow (open at top-right with arrowhead). -->
+    <path d="M 30 64 A 34 34 0 1 1 64 98"
+          stroke="#ffffff" stroke-width="9"
+          stroke-linecap="round" fill="none"/>
+    <polygon points="92,42 74,42 92,60" fill="#ffffff"/>
+
+    <!-- Center upward chevron. -->
+    <path d="M 50 70 L 64 56 L 78 70"
+          stroke="#ffffff" stroke-width="8"
+          stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  </g>
 </svg>
