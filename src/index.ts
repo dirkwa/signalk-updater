@@ -7,6 +7,47 @@ const PLUGIN_ID = 'signalk-updater';
 const CONTAINER_NAME = 'signalk-updater-server';
 const IMAGE = 'ghcr.io/dirkwa/signalk-updater-server';
 const REPO = 'dirkwa/signalk-updater-server';
+const ENGINE_PORT = 3003;
+
+/**
+ * Derive the Updater Console URL from the incoming HTTP request rather
+ * than a hardcoded externalUrl. Reason: a browser hitting the admin UI
+ * at http://192.168.0.122:3000 expects the "Open Updater Console" link
+ * to go to http://192.168.0.122:3003, NOT to http://localhost:3003
+ * (which is the BROWSER's localhost, not the SignalK box's).
+ *
+ * Honors X-Forwarded-Host when present (reverse-proxy setups). Strips
+ * the port from the request's host before re-appending the engine
+ * port — the admin UI and the engine container are on the same host
+ * but different ports.
+ *
+ * If `config.externalUrl` was explicitly set to something other than
+ * the default 'http://localhost:3003', the user is taking deliberate
+ * control (custom reverse proxy, alternate hostname) — honor it.
+ */
+export function resolveGuiUrl(req: Request, configuredUrl: string): string {
+  const isDefault = /^https?:\/\/localhost:3003\/?$/i.test(configuredUrl);
+  if (!isDefault) return configuredUrl;
+
+  const forwarded = req.headers['x-forwarded-host'];
+  const forwardedFirst = Array.isArray(forwarded) ? forwarded[0] : forwarded;
+  const hostHeader = forwardedFirst || req.headers.host || `localhost:${ENGINE_PORT}`;
+  // hostHeader is e.g. "192.168.0.122:3000" or "[::1]:3000" or "localhost:3000".
+  // Strip the port; keep IPv6 brackets if present.
+  let hostname = hostHeader;
+  if (hostname.startsWith('[')) {
+    const closeBracket = hostname.indexOf(']');
+    if (closeBracket > 0) hostname = hostname.substring(0, closeBracket + 1);
+  } else {
+    const colon = hostname.lastIndexOf(':');
+    if (colon > 0) hostname = hostname.substring(0, colon);
+  }
+
+  const proto =
+    (req.headers['x-forwarded-proto'] as string | undefined)?.split(',')[0]?.trim() ||
+    (req.secure ? 'https' : 'http');
+  return `${proto}://${hostname}:${ENGINE_PORT}`;
+}
 
 function getContainerManager(): ContainerManagerApi | undefined {
   return globalThis.__signalk_containerManager;
@@ -128,8 +169,8 @@ export default function pluginFactory(app: ServerAPI): Plugin {
     },
 
     registerWithRouter(router: IRouter): void {
-      router.get('/api/gui-url', (_req: Request, res: Response) => {
-        res.json({ url: state.config.externalUrl });
+      router.get('/api/gui-url', (req: Request, res: Response) => {
+        res.json({ url: resolveGuiUrl(req, state.config.externalUrl) });
       });
       router.get('/api/info', (_req: Request, res: Response) => {
         res.json({
