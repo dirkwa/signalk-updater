@@ -1,0 +1,242 @@
+language: en-US
+
+reviews:
+  profile: assertive
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+    drafts: false
+    ignore_title_keywords:
+      - 'chore(release):'
+      - 'chore(deps):'
+      - 'chore(deps-dev):'
+      - '[skip review]'
+      - 'WIP'
+    ignore_usernames:
+      - 'release-please[bot]'
+      - 'renovate[bot]'
+      - 'dependabot[bot]'
+      - 'github-actions[bot]'
+
+  path_filters:
+    - '!**/package-lock.json'
+    - '!**/yarn.lock'
+    - '!**/pnpm-lock.yaml'
+    - '!**/*.min.js'
+    - '!**/*.min.css'
+    - '!**/dist/**'
+    - '!**/plugin/**'
+    - '!**/public/**'
+    - '!**/build/**'
+    - '!**/node_modules/**'
+
+  high_level_summary_instructions: |
+    Write summaries in present tense. Describe what the code does, not what
+    it did. Skip filler like "This PR" — go straight to the change.
+
+  path_instructions:
+    - path: '**/*'
+      instructions: |
+        ## Scope
+
+        Focus on files changed since `main`. Think about how changes
+        interact with the rest of the stack, not just the diff in isolation.
+
+        signalk-updater is a **thin-shell SignalK plugin + redirect webapp**
+        that deep-links into the
+        [signalk-updater-server](https://github.com/dirkwa/signalk-updater-server)
+        engine container. It mirrors the
+        [signalk-backup](https://github.com/dirkwa/signalk-backup) pattern.
+
+        1. **Plugin (`src/`, plain Node, runs in SignalK server process)**
+           - Adopts the updater-server container started by the bash
+             installer via `signalk-container`'s
+             `__signalk_containerManager` and `updates.register()`.
+           - Exposes `GET /api/gui-url` returning the updater-server URL.
+        2. **Webapp (`webapp/`, vanilla TS, NOT React, served via SignalK
+           `signalk-webapp` keyword at `/signalk-updater/`)**
+           - Redirect shell: fetches `/api/gui-url`, then
+             `window.location.replace()`.
+           - Fallback rendering when the updater container is unreachable
+             (CC-3 — point the user at `~/.local/bin/signalk-recovery`).
+           - Inherits the SignalK Admin UI's stylesheet at load time so
+             light/dark and fonts match the host (see "Webapp theming"
+             below).
+
+        ## Adopt, don't manage
+
+        - **Default `managedContainer: false`.** The bash installer drops
+          the systemd Quadlet for `signalk-updater-server`. This plugin
+          ONLY calls `updates.register()` to enroll for update
+          notifications. Never `ensureRunning()` in the default path.
+        - Recovery survives a broken plugin. The plugin must not be on
+          the critical path for the updater container's lifecycle.
+        - If a PR adds an `ensureRunning()` call in the default path,
+          flag it — this breaks the recovery story.
+
+        ## Never crash signalk-server
+
+        On any failure (signalk-container plugin missing, container not
+        running, registration error), call `app.setPluginError(...)` —
+        never throw out of `start()`. A thrown plugin can take down the
+        whole SignalK server. Flag any `throw` in `start()` or top-level
+        plugin code paths.
+
+        ## Loose coupling to signalk-container
+
+        - Hand-rolled `src/types.ts` mirrors signalk-container's API
+          surface. Never `import` from `signalk-container` directly.
+        - We do not declare `peerDependencies` against signalk-container.
+          npm's semver matching against signalk-container's prereleases
+          is broken. We poll the global and surface a plugin error if
+          it's never available.
+        - `signalk.requires` in package.json is the only declared
+          dependency — do not add npm dependencies on signalk-container.
+
+        ## Schema defaults spread at start
+
+        Signal K does NOT seed schema defaults at runtime. Configs come in
+        partial. Spread `SCHEMA_DEFAULTS` over the incoming config in
+        `start()`:
+
+        ```ts
+        const cfg = { ...SCHEMA_DEFAULTS, ...incoming };
+        ```
+
+        Flag any code that reads `config.foo` without this spread, or
+        that relies on Signal K to fill defaults from the JSON Schema.
+
+        ## ESM / TypeScript strict / Node 22+
+
+        - `"type": "module"` — relative imports use the `.js` suffix
+          (NodeNext resolution). Do not suggest dropping it.
+        - tsconfig is strict, with `noUncheckedIndexedAccess`,
+          `noImplicitReturns`, `noImplicitOverride`, and
+          `noFallthroughCasesInSwitch`. Avoid `any` (it's an ESLint error,
+          not a warn). The webapp has its own `tsconfig.webapp.json` for
+          JSX/DOM types — keep the split.
+        - Node `>= 22.5.0` per `engines`. Native fetch on the plugin
+          side; browser fetch in the webapp.
+
+        ## Webapp is a redirect shell, NOT React
+
+        - **Vanilla TS only.** Do not suggest adding React, Vue,
+          reactstrap, or any UI framework. The webapp's only job is to
+          fetch `/api/gui-url` and redirect; if the container is
+          unreachable, render a fallback message pointing at
+          `~/.local/bin/signalk-recovery`.
+        - Use `ReturnType<typeof setInterval>` for timer handles in
+          browser code, not `NodeJS.Timeout` (Node type in webapp/).
+        - All API calls hit the plugin proxy at
+          `/plugins/signalk-updater/api/*` — same origin, no CORS,
+          inherits SignalK auth.
+        - **No new top-level dependencies** in the webapp without
+          justification. The fallback page should be plain HTML/CSS.
+
+        ## Webapp theming: inject SignalK admin CSS
+
+        The webapp's `index.html` includes a small inline `<script
+        type="module">` that fetches `/admin/.vite/manifest.json` and
+        injects the SignalK Admin UI's content-hashed stylesheets into
+        `<head>` BEFORE importing `src/main.ts`. This gives the page
+        Bootstrap utility classes and host light/dark theming without
+        bundling any CSS framework.
+
+        - **Don't suggest replacing this with bundled Bootstrap** — it
+          would defeat host theme inheritance and pin a version that may
+          diverge from the admin's.
+        - **Don't suggest a `<link rel="stylesheet">` at static load**
+          time — the admin manifest contains content-hashed filenames
+          that change per build.
+        - **Don't suggest adding a CSS framework dependency to
+          package.json** — the framework comes for free from the
+          injected admin CSS.
+        - Bootstrap utility classes (`container`, `alert alert-danger`,
+          `btn btn-primary`, `d-none`, etc.) in the markup are
+          intentional and rely on the injected CSS.
+
+        ## File layout
+
+        See AGENTS.md. Notable:
+
+        - `src/types.ts` — hand-rolled mirror, not generated.
+        - `src/config/schema.ts` — TypeBox schema PLUS `SCHEMA_DEFAULTS`
+          export (spread at `start()`).
+        - `vite.config.ts` — builds `webapp/` → `public/` with base
+          `/signalk-updater/`. Don't change the base — the Signal K
+          server serves the webapp at that path.
+
+        ## Echo comments
+
+        Flag any comment that merely restates what the code already says.
+        Examples to flag:
+
+        - `// Register the container` above `containers.updates.register(...)`
+        - `// Fetch the URL` above `fetch('/api/gui-url')`
+
+        Replace with comments explaining *why*, not *what*. Or delete.
+
+        ## Documentation drift risk
+
+        Flag any `.md` file that contains:
+
+        - Specific code snippets, function signatures, or config values
+          likely to fall out of sync as code evolves.
+        - Step-by-step build/development instructions that duplicate or
+          shadow the code itself.
+        - Implementation status, progress markers, "currently implemented
+          as X" wording. Build narratives belong in PR descriptions, not
+          in repo docs.
+
+        Architecture decisions and conceptual design rationale are fine.
+
+        ## Leftover crumbs from intermediate commits
+
+        Flag references in the current diff to symbols, files, or
+        approaches that no longer exist on this branch — old function
+        names in comments, dangling imports, stale TODOs from a
+        superseded approach, etc.
+
+        ## Unchecked items in test plans
+
+        If the PR description has a checklist with unchecked items, flag
+        it. Either the work isn't done, or the unchecked items should be
+        removed.
+
+        ## Commit / PR conventions
+
+        - Branch names use **hyphens**, never slashes.
+        - Angular conventional commits: `<type>(<scope>): <subject>`.
+          Subject ≤ 50 chars, imperative mood, no period.
+        - One logical change per commit and per PR.
+        - **No AI attribution** in commits, PR bodies, or code. Don't
+          mention Claude, AI, or add `Co-Authored-By` trailers.
+        - **No version bumps** in feature/fix PRs. Versions are bumped in
+          dedicated `chore(release):` PRs only when the user explicitly
+          asks.
+        - PR descriptions: no checkboxes. "Tested" lists what was
+          actually verified, not what's planned.
+
+        ## What NOT to flag
+
+        These are intentional:
+
+        - `managedContainer: false` as the default — see "Adopt, don't
+          manage" above.
+        - The hand-rolled `src/types.ts` mirror of signalk-container's
+          API surface — loose coupling is required.
+        - The vanilla-TS webapp instead of React — chosen on purpose,
+          this is a redirect shell.
+        - The admin-CSS injection pattern in `webapp/index.html` and the
+          Bootstrap utility classes in the markup — see "Webapp theming"
+          above. Don't suggest swapping either for a static stylesheet
+          link or a bundled framework.
+        - `escapeHtml(...)` calls around interpolated values before they
+          land in `innerHTML` in `webapp/src/main.ts` — intentional XSS
+          hardening, do not suggest removing.
+        - The schema-defaults spread in `start()` — required by Signal K's
+          runtime not seeding defaults.
+        - Calling `app.setPluginError(...)` instead of throwing on any
+          failure path — required to keep signalk-server alive.
+        - `signalk.requires: ['signalk-container']` without a matching
+          npm dependency — see "Loose coupling" above.

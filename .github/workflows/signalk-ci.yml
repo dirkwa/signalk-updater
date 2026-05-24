@@ -68,6 +68,9 @@ jobs:
     with:
       test-command: npm test
       build-command: npm run build --if-present
+      # Block PRs on prettier/eslint drift in repo-root files like
+      # .coderabbit.yaml that aren't covered by the build step's tsc.
+      format-check-command: npm run ci-lint
       node-versions: '["24"]'
       enable-armv7: false
       enable-signalk-integration: false
