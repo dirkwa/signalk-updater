@@ -106,6 +106,26 @@ reviews:
         Flag any code that reads `config.foo` without this spread, or
         that relies on Signal K to fill defaults from the JSON Schema.
 
+        ## imageTag "auto" resolves to UPDATER_SERVER_VERSION
+
+        `imageTag: "auto"` (the schema default) resolves via
+        `resolveImageTag(...)` in `src/config/image-tag.ts` to the hand-
+        bumped `UPDATER_SERVER_VERSION` constant — NOT to the plugin's
+        own `package.json` version. The two repos
+        (`signalk-updater` plugin and `signalk-updater-server` engine)
+        release on independent cadences. When a new engine version
+        ships to ghcr.io, bump the constant in its own PR.
+
+        - Don't restore the coupling between plugin version and
+          server image version — past attempts in the backup pair
+          forced phantom server releases on every plugin ship and
+          broke users with `manifest unknown`.
+        - Don't suggest reading the version from `package.json` at
+          runtime — that's the coupling we explicitly avoid.
+        - Anything that calls `updates.register()` or otherwise needs
+          a real semver tag MUST go through `resolveImageTag(...)` so
+          the literal `"auto"` never leaks downstream.
+
         ## ESM / TypeScript strict / Node 22+
 
         - `"type": "module"` — relative imports use the `.js` suffix
