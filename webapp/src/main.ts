@@ -1,6 +1,8 @@
 // Tiny redirect shell: ask the plugin for the externalUrl, then redirect.
 // If the plugin is unreachable (signalk-server missing) or the updater
 // container is down, render a friendly explanation instead of a blank page.
+// Styling is delegated to the SignalK Admin UI CSS injected by index.html,
+// so the page inherits the host theme (light/dark) and Bootstrap utilities.
 
 interface GuiUrlResponse {
   url: string;
@@ -8,6 +10,15 @@ interface GuiUrlResponse {
 
 const msg = document.getElementById('msg');
 const actions = document.getElementById('actions');
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
 async function bootstrap(): Promise<void> {
   try {
@@ -26,31 +37,38 @@ async function bootstrap(): Promise<void> {
       // no-cors gives us opaque responses; reaching here at all means TCP reach.
       void health;
     } catch (probeErr) {
+      const probeMsg = probeErr instanceof Error ? probeErr.message : String(probeErr);
       if (msg) {
-        msg.innerHTML = `<span class="err">Updater container is not reachable at <code>${body.url}</code>.</span>
+        msg.innerHTML = `<div class="alert alert-danger" role="alert">
+          Updater container is not reachable at <code>${escapeHtml(body.url)}</code>.
+        </div>
         <p>The systemd unit may be down. Open an SSH session and try
         <code>systemctl --user status signalk-updater-server.service</code>,
         or fall back to <code>~/.local/bin/signalk-recovery rollback-updater</code>
         if the container is bricked.</p>
-        <p>Original error: <code>${probeErr instanceof Error ? probeErr.message : String(probeErr)}</code></p>`;
+        <p class="text-muted small">Original error: <code>${escapeHtml(probeMsg)}</code></p>`;
       }
       return;
     }
 
     if (msg) {
-      msg.innerHTML = `<span class="ok">Updater Console is reachable.</span>
-      Redirecting to <code>${body.url}</code>…`;
+      msg.innerHTML = `<div class="alert alert-success" role="alert">
+        Updater Console is reachable. Redirecting to <code>${escapeHtml(body.url)}</code>…
+      </div>`;
     }
     window.location.replace(body.url);
   } catch (err) {
     if (msg) {
-      msg.innerHTML = `<span class="err">Could not contact the signalk-updater plugin.</span>
+      msg.innerHTML = `<div class="alert alert-danger" role="alert">
+        Could not contact the signalk-updater plugin.
+      </div>
       <p>Either the plugin is disabled or signalk-server is unhealthy.
       The Updater Console may still be reachable directly:</p>`;
     }
     if (actions) {
-      actions.style.display = 'block';
-      actions.innerHTML = '<a href="http://localhost:3003">Open Updater Console on :3003</a>';
+      actions.classList.remove('d-none');
+      actions.innerHTML =
+        '<a class="btn btn-primary" href="http://localhost:3003">Open Updater Console on :3003</a>';
     }
     console.error(err);
   }

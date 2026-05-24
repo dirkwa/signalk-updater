@@ -4,41 +4,58 @@
     <meta charset="utf-8" />
     <title>SignalK Updater</title>
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <style>
-      body {
-        font-family: system-ui, sans-serif;
-        padding: 2rem;
-        max-width: 640px;
-        margin: 0 auto;
+
+    <!--
+      Inherit the SignalK Admin UI's stylesheet so this redirect shell is
+      themed consistently with the admin (light/dark, fonts, Bootstrap
+      utilities). The admin is built with Vite and emits content-hashed
+      CSS filenames, so we read its manifest at load time and inject the
+      discovered <link> tags into <head>. Awaiting every link's load event
+      before importing main.ts guarantees the first paint is themed
+      (no flash of unstyled content). Mirrors the signalk-backup pattern.
+    -->
+    <script type="module">
+      async function injectAdminCss() {
+        const res = await fetch('/admin/.vite/manifest.json');
+        if (!res.ok) return;
+        const manifest = await res.json();
+        const cssFiles = new Set();
+        for (const entry of Object.values(manifest)) {
+          if (!entry) continue;
+          for (const css of entry.css ?? []) cssFiles.add(css);
+          if (typeof entry.file === 'string' && entry.file.endsWith('.css')) {
+            cssFiles.add(entry.file);
+          }
+        }
+        await Promise.all(
+          [...cssFiles].map(
+            (css) =>
+              new Promise((resolve) => {
+                const link = document.createElement('link');
+                link.rel = 'stylesheet';
+                link.href = '/admin/' + css;
+                link.onload = resolve;
+                link.onerror = resolve;
+                document.head.appendChild(link);
+              }),
+          ),
+        );
       }
-      h1 {
-        font-size: 1.5rem;
+
+      try {
+        await injectAdminCss();
+      } catch (err) {
+        console.warn('signalk-updater: admin CSS not available', err);
+      } finally {
+        await import('./src/main.ts');
       }
-      .err {
-        color: #b00;
-      }
-      .ok {
-        color: #0a0;
-      }
-      code {
-        background: #f3f3f3;
-        padding: 0 0.25rem;
-        border-radius: 3px;
-      }
-      .actions a {
-        display: inline-block;
-        padding: 0.5rem 1rem;
-        background: #1c6fe1;
-        color: #fff;
-        text-decoration: none;
-        border-radius: 4px;
-      }
-    </style>
+    </script>
   </head>
   <body>
-    <h1>SignalK Updater</h1>
-    <p id="msg">Looking up Updater Console URL…</p>
-    <div id="actions" class="actions" style="display: none"></div>
-    <script type="module" src="./src/main.ts"></script>
+    <div class="container py-4" style="max-width: 640px">
+      <h1 class="h4 mb-3">SignalK Updater</h1>
+      <p id="msg" class="mb-3">Looking up Updater Console URL…</p>
+      <div id="actions" class="d-none"></div>
+    </div>
   </body>
 </html>
