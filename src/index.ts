@@ -2,6 +2,7 @@ import type { Plugin, ServerAPI } from '@signalk/server-api';
 import type { IRouter, Request, Response } from 'express';
 import type { ContainerManagerApi } from './types.js';
 import { ConfigSchema, SCHEMA_DEFAULTS, type Config } from './config/schema.js';
+import { resolveImageTag, UPDATER_SERVER_VERSION } from './config/image-tag.js';
 
 const PLUGIN_ID = 'signalk-updater';
 const CONTAINER_NAME = 'signalk-updater-server';
@@ -121,7 +122,10 @@ export default function pluginFactory(app: ServerAPI): Plugin {
           pluginId: PLUGIN_ID,
           containerName: CONTAINER_NAME,
           image: IMAGE,
-          currentTag: () => state.config.imageTag,
+          // Resolve "auto" against the hand-bumped UPDATER_SERVER_VERSION
+          // constant so signalk-container's update comparator gets a real
+          // semver tag to compare against, not the literal "auto".
+          currentTag: () => resolveImageTag(state.config.imageTag),
           versionSource: containers.updates.sources.githubReleases(REPO),
           checkInterval: '24h',
         });
@@ -173,12 +177,19 @@ export default function pluginFactory(app: ServerAPI): Plugin {
         res.json({ url: resolveGuiUrl(req, state.config.externalUrl) });
       });
       router.get('/api/info', (_req: Request, res: Response) => {
+        const configuredTag = state.config.imageTag;
         res.json({
           pluginId: PLUGIN_ID,
           containerName: CONTAINER_NAME,
           image: IMAGE,
           managedContainer: state.config.managedContainer,
           externalUrl: state.config.externalUrl,
+          // Expose both what the user configured ("auto" or a pinned tag)
+          // and what it resolves to, so the Updater Console can show the
+          // expected-vs-actual gap if any.
+          configuredTag,
+          resolvedTag: resolveImageTag(configuredTag),
+          updaterServerVersion: UPDATER_SERVER_VERSION,
         });
       });
     },
