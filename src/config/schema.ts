@@ -10,14 +10,6 @@ export const ConfigSchema = Type.Object({
       'and that path is what survives plugin failures. Set to true only if you understand ' +
       "what you're doing.",
   }),
-  imageTag: Type.String({
-    default: 'auto',
-    title: 'Updater image tag',
-    description:
-      'Container image tag to track for update notifications. "auto" resolves to the ' +
-      'UPDATER_SERVER_VERSION constant baked into the plugin at build time. Pin to a ' +
-      'specific tag (e.g. "0.6.0") to override.',
-  }),
   externalUrl: Type.String({
     default: 'http://localhost:3003',
     title: 'Updater console URL',
@@ -35,7 +27,6 @@ export type Config = Static<typeof ConfigSchema>;
 
 export const SCHEMA_DEFAULTS: Config = {
   managedContainer: false,
-  imageTag: 'auto',
   externalUrl: 'http://localhost:3003',
   logLevel: 'info',
 };
