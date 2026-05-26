@@ -3,7 +3,33 @@ import http from 'node:http';
 import { once } from 'node:events';
 import { AddressInfo } from 'node:net';
 import express from 'express';
-import { createConsoleProxy, injectApiBaseMeta } from '../src/proxy.js';
+import { createConsoleProxy, injectApiBaseMeta, joinUpstreamPath } from '../src/proxy.js';
+
+describe('joinUpstreamPath', () => {
+  it('forwards the client path verbatim when the upstream is at root', () => {
+    expect(joinUpstreamPath('/', '/api/health')).toBe('/api/health');
+  });
+
+  it('prepends a non-root upstream base path', () => {
+    expect(joinUpstreamPath('/updater/', '/api/health')).toBe('/updater/api/health');
+  });
+
+  it('handles upstream base without trailing slash', () => {
+    expect(joinUpstreamPath('/updater', '/api/health')).toBe('/updater/api/health');
+  });
+
+  it('treats empty client path as root', () => {
+    expect(joinUpstreamPath('/updater/', '')).toBe('/updater/');
+  });
+
+  it('preserves query strings on the client path', () => {
+    expect(joinUpstreamPath('/updater', '/api/logs?tail=100')).toBe('/updater/api/logs?tail=100');
+  });
+
+  it('falls back to root when basePath is empty', () => {
+    expect(joinUpstreamPath('', '/api/health')).toBe('/api/health');
+  });
+});
 
 describe('injectApiBaseMeta', () => {
   it('inserts the meta tag right after <head>', () => {
@@ -130,6 +156,53 @@ describe('createConsoleProxy', () => {
       expect(html).toContain('<meta name="api-base" content="/plugins/signalk-updater/console">');
     } finally {
       await close();
+    }
+  });
+
+  it('preserves upstream base path when externalUrl has a non-root pathname', async () => {
+    // The default upstream test server in beforeAll() answers at /api/health.
+    // Configure the proxy with a base path that shifts the answer endpoint
+    // to /updater/api/health and have the upstream answer there, proving
+    // the proxy joins paths correctly instead of dropping the base.
+    const baseUpstream = http.createServer((req, res) => {
+      upstreamRequests.push({
+        method: req.method ?? 'GET',
+        url: req.url ?? '',
+        headers: { ...req.headers },
+      });
+      if (req.url === '/updater/api/health') {
+        res.setHeader('content-type', 'application/json');
+        res.end(JSON.stringify({ ok: true, basePath: '/updater' }));
+        return;
+      }
+      res.statusCode = 404;
+      res.end(`not found at ${req.url}`);
+    });
+    baseUpstream.listen(0);
+    await once(baseUpstream, 'listening');
+    const baseAddr = baseUpstream.address() as AddressInfo;
+    const baseUpstreamUrl = `http://127.0.0.1:${baseAddr.port}/updater/`;
+
+    const app = express();
+    const proxy = createConsoleProxy({
+      getTargetUrl: () => baseUpstreamUrl,
+      publicPathPrefix: '/plugins/signalk-updater/console',
+    });
+    app.use('/console', proxy);
+    const server = app.listen(0);
+    await once(server, 'listening');
+    const addr = server.address() as AddressInfo;
+
+    try {
+      const res = await fetch(`http://127.0.0.1:${addr.port}/console/api/health`);
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body).toEqual({ ok: true, basePath: '/updater' });
+    } finally {
+      server.close();
+      await once(server, 'close');
+      baseUpstream.close();
+      await once(baseUpstream, 'close');
     }
   });
 

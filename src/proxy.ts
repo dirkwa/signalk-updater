@@ -70,8 +70,10 @@ export function createConsoleProxy(opts: ProxyOptions) {
 
     // req.url has already had the mount prefix stripped by Express. For
     // "/plugins/signalk-updater/console/foo" mounted at "/console", req.url
-    // is "/foo". An empty path becomes "/" so the engine serves its index.
-    const path = req.url === '' ? '/' : req.url;
+    // is "/foo". The upstream may itself live under a non-root path (e.g.
+    // an externalUrl of "https://host/updater/") — joinUpstreamPath
+    // preserves that base so /api/health → /updater/api/health upstream.
+    const path = joinUpstreamPath(target.pathname, req.url);
 
     const headers: Record<string, string | string[]> = {};
     for (const [k, v] of Object.entries(req.headers)) {
@@ -186,6 +188,21 @@ function filterAndCopyHeaders(
     out[k] = v;
   }
   return out;
+}
+
+/**
+ * Concatenate the upstream's base pathname with the client's request path.
+ * Yields a single leading slash, exactly one slash between segments, and
+ * preserves the client's query/fragment (Express passes them as part of
+ * req.url). Empty client path is treated as "/" so an upstream like
+ * https://host/updater/ serves its index at /updater/.
+ */
+export function joinUpstreamPath(basePath: string, clientPath: string): string {
+  const base = (basePath || '/').replace(/\/+$/, '');
+  const tail = clientPath === '' ? '/' : clientPath;
+  const normalizedTail = tail.startsWith('/') ? tail : `/${tail}`;
+  const joined = `${base}${normalizedTail}`;
+  return joined.startsWith('/') ? joined : `/${joined}`;
 }
 
 /**
