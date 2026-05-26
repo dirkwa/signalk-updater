@@ -30,20 +30,37 @@ export default defineConfig({
         './AppPanel': resolve(here, 'webapp/src/AppPanel.tsx'),
       },
       shared: {
-        // import: false is load-bearing. Without it the @module-federation/vite
-        // remote bundles its own copy of React into _virtual_mf_..._loadShare__
-        // chunks and unconditionally writes that copy into the runtime cache
-        // (o.share.react) before the host's share scope ever gets consulted.
-        // The result: two React instances coexist, useState reads the host's
-        // dispatcher but our chunk's React.useState returns null —
-        // "Cannot read properties of null (reading 'useState')" at first paint.
-        // With import: false the build extracts named exports from our devDep
-        // copy of React at build time but emits a deferred-host-provided
-        // import at runtime, so the SignalK admin's already-loaded React is
-        // the only instance the panel ever touches. React/ReactDOM 19 are
-        // still kept as devDeps so the build can scan their exports.
+        // import: false on react/react-dom is load-bearing. Without it the
+        // @module-federation/vite remote bundles its own copy of React into
+        // _virtual_mf_..._loadShare__ chunks and unconditionally writes that
+        // copy into the runtime cache (o.share.react) before the host's
+        // share scope ever gets consulted. The result: two React instances
+        // coexist, useState reads the host's dispatcher but our chunk's
+        // React.useState returns null — "Cannot read properties of null
+        // (reading 'useState')" at first paint.
+        //
+        // With import: false the build extracts named exports from our
+        // devDep copy of React at build time but emits a deferred host-
+        // provided import at runtime, so the SignalK admin's already-loaded
+        // React is the only instance the panel ever touches. React/ReactDOM
+        // 19 are still kept as devDeps so the build can scan their exports.
         react: { singleton: true, requiredVersion: '^19.0.0', import: false },
         'react-dom': { singleton: true, requiredVersion: '^19.0.0', import: false },
+        // react/jsx-runtime (and the dev variant) must be import: true. The
+        // SignalK admin doesn't pre-register these in its share scope — only
+        // 'react' and 'react-dom' — so a deferred host-provider lookup throws
+        // "Shared module 'react/jsx-runtime' must be provided by host". The
+        // jsx-runtime modules are tiny self-contained factories (Fragment,
+        // jsx, jsxs), don't import React internals, and bundling them adds
+        // ~1 kB. The plugin would otherwise auto-share these sub-paths with
+        // the same config as their parent 'react' entry (import: false),
+        // which is exactly the broken behavior we're overriding here.
+        'react/jsx-runtime': { singleton: true, requiredVersion: '^19.0.0', import: true },
+        'react/jsx-dev-runtime': {
+          singleton: true,
+          requiredVersion: '^19.0.0',
+          import: true,
+        },
       },
       // We don't ship .d.ts to consumers — the SignalK admin loads us as a
       // runtime remote, not a type-imported package. Disabling avoids a
