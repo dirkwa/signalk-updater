@@ -23,8 +23,18 @@
  * this plugin entirely.
  */
 import http from 'node:http';
+import https from 'node:https';
 import { URL } from 'node:url';
 import type { Request, Response } from 'express';
+
+/**
+ * Max time we wait for the upstream to begin responding (headers received).
+ * Once headers arrive we clear the timeout — long-lived SSE streams may
+ * legitimately go minutes without bytes, so a total-request timeout would
+ * kill them. The header-arrival window protects against an unresponsive
+ * engine without breaking live streams.
+ */
+const UPSTREAM_HEADER_TIMEOUT_MS = 15_000;
 
 /** Hop-by-hop headers per RFC 7230 §6.1 — must not be forwarded. */
 const HOP_BY_HOP = new Set([
@@ -74,7 +84,15 @@ export function createConsoleProxy(opts: ProxyOptions) {
     // keeps HTML rewriting simple (no gunzip step) and is fine on localhost.
     delete headers['accept-encoding'];
 
-    const proxyReq = http.request(
+    // Watchdog: arm before sending the request; the 'response' callback
+    // (or any of the error paths below) clears it. If headers don't arrive
+    // within the window we destroy the upstream socket and fail the client
+    // with 504; the existing 'error' handler turns that into a clean
+    // response.
+    let headerTimer: ReturnType<typeof setTimeout>;
+
+    const transport = target.protocol === 'https:' ? https : http;
+    const proxyReq = transport.request(
       {
         protocol: target.protocol,
         hostname: target.hostname,
@@ -84,6 +102,9 @@ export function createConsoleProxy(opts: ProxyOptions) {
         headers,
       },
       (proxyRes) => {
+        // Headers arrived; cancel the upstream-stall watchdog so SSE/long
+        // polls don't get killed mid-stream.
+        clearTimeout(headerTimer);
         const status = proxyRes.statusCode ?? 502;
         const contentType = (proxyRes.headers['content-type'] ?? '').toString().toLowerCase();
         const isHtml = contentType.includes('text/html');
@@ -131,7 +152,12 @@ export function createConsoleProxy(opts: ProxyOptions) {
       },
     );
 
+    headerTimer = setTimeout(() => {
+      proxyReq.destroy(new Error('upstream header timeout'));
+    }, UPSTREAM_HEADER_TIMEOUT_MS);
+
     proxyReq.on('error', (err) => {
+      clearTimeout(headerTimer);
       if (!res.headersSent) {
         res
           .status(502)

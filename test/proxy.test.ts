@@ -85,7 +85,11 @@ describe('createConsoleProxy', () => {
     await once(upstream, 'close');
   });
 
-  function makeApp(): { app: express.Express; close: () => Promise<void>; baseUrl: string } {
+  async function makeApp(): Promise<{
+    app: express.Express;
+    close: () => Promise<void>;
+    baseUrl: string;
+  }> {
     const app = express();
     const proxy = createConsoleProxy({
       getTargetUrl: () => upstreamUrl,
@@ -93,6 +97,7 @@ describe('createConsoleProxy', () => {
     });
     app.use('/console', proxy);
     const server = app.listen(0);
+    await once(server, 'listening');
     const addr = server.address() as AddressInfo;
     return {
       app,
@@ -105,7 +110,7 @@ describe('createConsoleProxy', () => {
   }
 
   it('proxies a JSON GET unchanged', async () => {
-    const { baseUrl, close } = makeApp();
+    const { baseUrl, close } = await makeApp();
     try {
       const res = await fetch(`${baseUrl}/console/api/health`);
       expect(res.status).toBe(200);
@@ -117,7 +122,7 @@ describe('createConsoleProxy', () => {
   });
 
   it('injects the api-base meta tag into HTML responses', async () => {
-    const { baseUrl, close } = makeApp();
+    const { baseUrl, close } = await makeApp();
     try {
       const res = await fetch(`${baseUrl}/console/`);
       expect(res.status).toBe(200);
@@ -129,7 +134,7 @@ describe('createConsoleProxy', () => {
   });
 
   it('strips Accept-Encoding so the upstream sends uncompressed', async () => {
-    const { baseUrl, close } = makeApp();
+    const { baseUrl, close } = await makeApp();
     try {
       await fetch(`${baseUrl}/console/api/health`, {
         headers: { 'Accept-Encoding': 'gzip' },
@@ -150,6 +155,7 @@ describe('createConsoleProxy', () => {
     });
     app.use('/console', proxy);
     const server = app.listen(0);
+    await once(server, 'listening');
     const addr = server.address() as AddressInfo;
     try {
       const res = await fetch(`http://127.0.0.1:${addr.port}/console/api/health`);
