@@ -2,6 +2,10 @@ import type { Plugin, ServerAPI } from '@signalk/server-api';
 import type { IRouter, Request, Response } from 'express';
 import type { ContainerManagerApi } from './types.js';
 import { ConfigSchema, SCHEMA_DEFAULTS, type Config } from './config/schema.js';
+import { createConsoleProxy } from './proxy.js';
+
+const PLUGIN_PATH_PREFIX = '/plugins/signalk-updater';
+const CONSOLE_MOUNT = '/console';
 
 const PLUGIN_ID = 'signalk-updater';
 const CONTAINER_NAME = 'signalk-updater-server';
@@ -234,6 +238,18 @@ export default function pluginFactory(app: ServerAPI): Plugin {
           currentTag: ENGINE_TAG,
         });
       });
+
+      // Same-origin reverse proxy to the engine console. Lets the embedded
+      // React AppPanel iframe the engine UI without mixed-content or CORS
+      // issues, and works behind HTTPS reverse proxies (Traefik/nginx) in
+      // front of signalk-server. See src/proxy.ts for SSE/HTML-injection
+      // details. Requires the engine UI to read <meta name="api-base"> for
+      // all API calls — see signalk-updater-server release notes.
+      const consoleProxy = createConsoleProxy({
+        getTargetUrl: () => state.config.externalUrl,
+        publicPathPrefix: `${PLUGIN_PATH_PREFIX}${CONSOLE_MOUNT}`,
+      });
+      router.use(CONSOLE_MOUNT, consoleProxy);
     },
   };
 

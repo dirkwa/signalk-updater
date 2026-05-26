@@ -16,7 +16,9 @@
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
     "noEmit": true,
-    "isolatedModules": true
+    "isolatedModules": true,
+    "jsx": "react-jsx",
+    "types": ["react", "react-dom"]
   },
-  "include": ["webapp/**/*.ts"]
+  "include": ["webapp/**/*.ts", "webapp/**/*.tsx"]
 }
