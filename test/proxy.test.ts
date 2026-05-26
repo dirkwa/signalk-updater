@@ -206,6 +206,64 @@ describe('createConsoleProxy', () => {
     }
   });
 
+  it('adds no-transform to Cache-Control on SSE responses (defeats signalk-server compression buffering)', async () => {
+    // signalk-server's compression middleware compresses text/event-stream
+    // by default (compressible('text/event-stream') === true) which buffers
+    // SSE for minutes. The documented opt-out is Cache-Control: no-transform.
+    const sseUpstream = http.createServer((req, res) => {
+      if (req.url === '/stream') {
+        res.setHeader('content-type', 'text/event-stream');
+        res.setHeader('cache-control', 'no-cache');
+        res.write('data: hello\n\n');
+        res.end();
+        return;
+      }
+      res.statusCode = 404;
+      res.end();
+    });
+    sseUpstream.listen(0);
+    await once(sseUpstream, 'listening');
+    const sseAddr = sseUpstream.address() as AddressInfo;
+    const sseUpstreamUrl = `http://127.0.0.1:${sseAddr.port}`;
+
+    const app = express();
+    const proxy = createConsoleProxy({
+      getTargetUrl: () => sseUpstreamUrl,
+      publicPathPrefix: '/plugins/signalk-updater/console',
+    });
+    app.use('/console', proxy);
+    const server = app.listen(0);
+    await once(server, 'listening');
+    const addr = server.address() as AddressInfo;
+
+    try {
+      const res = await fetch(`http://127.0.0.1:${addr.port}/console/stream`);
+      expect(res.status).toBe(200);
+      const cacheControl = res.headers.get('cache-control') ?? '';
+      expect(cacheControl).toMatch(/no-transform/i);
+      expect(cacheControl).toMatch(/no-cache/i);
+      expect(await res.text()).toContain('data: hello');
+    } finally {
+      server.close();
+      await once(server, 'close');
+      sseUpstream.close();
+      await once(sseUpstream, 'close');
+    }
+  });
+
+  it('does not modify Cache-Control on non-SSE responses', async () => {
+    const { baseUrl, close } = await makeApp();
+    try {
+      const res = await fetch(`${baseUrl}/console/api/health`);
+      // The default upstream test server doesn't set Cache-Control on
+      // /api/health, so our header should be absent (not "no-transform").
+      const cacheControl = res.headers.get('cache-control') ?? '';
+      expect(cacheControl).not.toMatch(/no-transform/i);
+    } finally {
+      await close();
+    }
+  });
+
   it('strips Accept-Encoding so the upstream sends uncompressed', async () => {
     const { baseUrl, close } = await makeApp();
     try {
