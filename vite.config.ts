@@ -30,8 +30,20 @@ export default defineConfig({
         './AppPanel': resolve(here, 'webapp/src/AppPanel.tsx'),
       },
       shared: {
-        react: { singleton: true, requiredVersion: '^19.0.0' },
-        'react-dom': { singleton: true, requiredVersion: '^19.0.0' },
+        // import: false is load-bearing. Without it the @module-federation/vite
+        // remote bundles its own copy of React into _virtual_mf_..._loadShare__
+        // chunks and unconditionally writes that copy into the runtime cache
+        // (o.share.react) before the host's share scope ever gets consulted.
+        // The result: two React instances coexist, useState reads the host's
+        // dispatcher but our chunk's React.useState returns null —
+        // "Cannot read properties of null (reading 'useState')" at first paint.
+        // With import: false the build extracts named exports from our devDep
+        // copy of React at build time but emits a deferred-host-provided
+        // import at runtime, so the SignalK admin's already-loaded React is
+        // the only instance the panel ever touches. React/ReactDOM 19 are
+        // still kept as devDeps so the build can scan their exports.
+        react: { singleton: true, requiredVersion: '^19.0.0', import: false },
+        'react-dom': { singleton: true, requiredVersion: '^19.0.0', import: false },
       },
       // We don't ship .d.ts to consumers — the SignalK admin loads us as a
       // runtime remote, not a type-imported package. Disabling avoids a
