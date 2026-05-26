@@ -150,6 +150,26 @@ export function createConsoleProxy(opts: ProxyOptions) {
             res.setHeader(k, v);
           }
         }
+        // SSE buffering defense. signalk-server's compression middleware
+        // wraps every response and DOES compress text/event-stream by
+        // default (compressible('text/event-stream') === true). Gzip
+        // buffers ~16 kB before flushing, so the browser sees no events
+        // for minutes despite our pipe writing immediately. The
+        // documented opt-out is Cache-Control: no-transform — see
+        // compression's shouldTransform() guard. The engine's SSE
+        // responses ship with Cache-Control: no-cache; we append
+        // no-transform iff it isn't already there, then flush headers
+        // so the EventSource sees an open stream right away.
+        if (contentType.includes('text/event-stream')) {
+          const existingCacheControl = (res.getHeader('Cache-Control') ?? '').toString();
+          if (!/(^|,)\s*no-transform\s*(,|$)/i.test(existingCacheControl)) {
+            const merged = existingCacheControl
+              ? `${existingCacheControl}, no-transform`
+              : 'no-cache, no-transform';
+            res.setHeader('Cache-Control', merged);
+          }
+          res.flushHeaders();
+        }
         proxyRes.pipe(res);
       },
     );
