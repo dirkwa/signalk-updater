@@ -159,7 +159,7 @@ describe('createConsoleProxy', () => {
     }
   });
 
-  it('preserves upstream base path when externalUrl has a non-root pathname', async () => {
+  it('preserves upstream base path when the target URL has a non-root pathname', async () => {
     // The default upstream test server in beforeAll() answers at /api/health.
     // Configure the proxy with a base path that shifts the answer endpoint
     // to /updater/api/health and have the upstream answer there, proving

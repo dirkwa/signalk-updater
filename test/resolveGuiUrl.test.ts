@@ -7,50 +7,48 @@ function req(headers: Record<string, string>, secure = false): Request {
 }
 
 describe('resolveGuiUrl', () => {
-  it('substitutes the request hostname when configured URL is the default', () => {
+  it('substitutes the request hostname onto the engine port', () => {
     const r = req({ host: '192.168.0.122:3000' });
-    expect(resolveGuiUrl(r, 'http://localhost:3003')).toBe('http://192.168.0.122:3003');
+    expect(resolveGuiUrl(r)).toBe('http://192.168.0.122:3003');
   });
 
   it('keeps localhost when the request host is localhost', () => {
     const r = req({ host: 'localhost:3000' });
-    expect(resolveGuiUrl(r, 'http://localhost:3003')).toBe('http://localhost:3003');
+    expect(resolveGuiUrl(r)).toBe('http://localhost:3003');
   });
 
-  it('handles hostnames without a port', () => {
+  it('handles a .local hostname without a port (browser resolves it)', () => {
     const r = req({ host: 'boat.local' });
-    expect(resolveGuiUrl(r, 'http://localhost:3003')).toBe('http://boat.local:3003');
+    expect(resolveGuiUrl(r)).toBe('http://boat.local:3003');
   });
 
   it('handles IPv6 brackets correctly', () => {
     const r = req({ host: '[::1]:3000' });
-    expect(resolveGuiUrl(r, 'http://localhost:3003')).toBe('http://[::1]:3003');
+    expect(resolveGuiUrl(r)).toBe('http://[::1]:3003');
   });
 
   it('honors X-Forwarded-Host over Host', () => {
     const r = req({ host: 'internal:3000', 'x-forwarded-host': 'public.example.com' });
-    expect(resolveGuiUrl(r, 'http://localhost:3003')).toBe('http://public.example.com:3003');
+    expect(resolveGuiUrl(r)).toBe('http://public.example.com:3003');
+  });
+
+  it('takes the first host from a comma-joined X-Forwarded-Host (chained proxies)', () => {
+    const r = req({ 'x-forwarded-host': 'public.example.com, internal:3000' });
+    expect(resolveGuiUrl(r)).toBe('http://public.example.com:3003');
   });
 
   it('honors X-Forwarded-Proto for HTTPS-fronted reverse proxies', () => {
     const r = req({ host: 'public.example.com', 'x-forwarded-proto': 'https' });
-    expect(resolveGuiUrl(r, 'http://localhost:3003')).toBe('https://public.example.com:3003');
+    expect(resolveGuiUrl(r)).toBe('https://public.example.com:3003');
   });
 
   it('uses req.secure when no X-Forwarded-Proto', () => {
     const r = req({ host: 'public.example.com' }, true);
-    expect(resolveGuiUrl(r, 'http://localhost:3003')).toBe('https://public.example.com:3003');
-  });
-
-  it('returns the configured URL verbatim when explicitly overridden', () => {
-    const r = req({ host: '192.168.0.122:3000' });
-    expect(resolveGuiUrl(r, 'http://my-proxy.example.com/updater')).toBe(
-      'http://my-proxy.example.com/updater',
-    );
+    expect(resolveGuiUrl(r)).toBe('https://public.example.com:3003');
   });
 
   it('falls back to localhost:3003 when Host header is absent', () => {
     const r = req({});
-    expect(resolveGuiUrl(r, 'http://localhost:3003')).toBe('http://localhost:3003');
+    expect(resolveGuiUrl(r)).toBe('http://localhost:3003');
   });
 });

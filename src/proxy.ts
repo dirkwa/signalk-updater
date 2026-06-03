@@ -1,6 +1,6 @@
 /**
  * Same-origin reverse proxy from /plugins/signalk-updater/console/* to the
- * signalk-updater-server engine container (default http://localhost:3003).
+ * signalk-updater-server engine container over loopback (http://127.0.0.1:3003).
  *
  * Why same-origin: lets the embedded React panel in the SignalK admin UI
  * iframe the engine console without mixed-content (HTTPS-to-HTTP) or CORS
@@ -49,7 +49,7 @@ const HOP_BY_HOP = new Set([
 ]);
 
 interface ProxyOptions {
-  /** Returns the engine base URL, e.g. "http://localhost:3003". Re-read on every request so config changes take effect without restart. */
+  /** Returns the engine base URL — the co-located engine over loopback, e.g. "http://127.0.0.1:3003". */
   getTargetUrl: () => string;
   /** Public-facing path prefix where this proxy is mounted, used for the api-base meta tag (e.g. "/plugins/signalk-updater/console"). */
   publicPathPrefix: string;
@@ -70,9 +70,8 @@ export function createConsoleProxy(opts: ProxyOptions) {
 
     // req.url has already had the mount prefix stripped by Express. For
     // "/plugins/signalk-updater/console/foo" mounted at "/console", req.url
-    // is "/foo". The upstream may itself live under a non-root path (e.g.
-    // an externalUrl of "https://host/updater/") — joinUpstreamPath
-    // preserves that base so /api/health → /updater/api/health upstream.
+    // is "/foo". joinUpstreamPath preserves any non-root base on the target
+    // URL so /api/health → /<base>/api/health upstream.
     const path = joinUpstreamPath(target.pathname, req.url);
 
     const headers: Record<string, string | string[]> = {};
