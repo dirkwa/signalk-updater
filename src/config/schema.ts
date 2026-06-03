@@ -10,13 +10,6 @@ export const ConfigSchema = Type.Object({
       'and that path is what survives plugin failures. Set to true only if you understand ' +
       "what you're doing.",
   }),
-  externalUrl: Type.String({
-    default: 'http://localhost:3003',
-    title: 'Updater console URL',
-    description:
-      'Where the Updater Console is reachable. Defaults to the localhost-bound port the ' +
-      'installer set up. Change only if you front the updater with a custom reverse proxy.',
-  }),
   logLevel: Type.Union([Type.Literal('error'), Type.Literal('info'), Type.Literal('debug')], {
     default: 'info',
     title: 'Log level',
@@ -27,6 +20,5 @@ export type Config = Static<typeof ConfigSchema>;
 
 export const SCHEMA_DEFAULTS: Config = {
   managedContainer: false,
-  externalUrl: 'http://localhost:3003',
   logLevel: 'info',
 };
