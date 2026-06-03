@@ -32,6 +32,11 @@ describe('resolveGuiUrl', () => {
     expect(resolveGuiUrl(r)).toBe('http://public.example.com:3003');
   });
 
+  it('takes the first host from a comma-joined X-Forwarded-Host (chained proxies)', () => {
+    const r = req({ 'x-forwarded-host': 'public.example.com, internal:3000' });
+    expect(resolveGuiUrl(r)).toBe('http://public.example.com:3003');
+  });
+
   it('honors X-Forwarded-Proto for HTTPS-fronted reverse proxies', () => {
     const r = req({ host: 'public.example.com', 'x-forwarded-proto': 'https' });
     expect(resolveGuiUrl(r)).toBe('https://public.example.com:3003');

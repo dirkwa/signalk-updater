@@ -40,7 +40,11 @@ export const ENGINE_LOCAL_URL = `http://127.0.0.1:${ENGINE_PORT}`;
  */
 export function resolveGuiUrl(req: Request): string {
   const forwarded = req.headers['x-forwarded-host'];
-  const forwardedFirst = Array.isArray(forwarded) ? forwarded[0] : forwarded;
+  // Behind chained proxies X-Forwarded-Host can be a comma-joined list; take
+  // the first entry (same as the X-Forwarded-Proto handling below).
+  const forwardedFirst = (Array.isArray(forwarded) ? forwarded[0] : forwarded)
+    ?.split(',')[0]
+    ?.trim();
   const hostHeader = forwardedFirst || req.headers.host || `localhost:${ENGINE_PORT}`;
   // hostHeader is e.g. "192.168.0.122:3000" or "[::1]:3000" or "localhost:3000".
   // Strip the port; keep IPv6 brackets if present.
