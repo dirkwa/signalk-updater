@@ -17,26 +17,28 @@ const ENGINE_PORT = 3003;
 // answer is the engine's own /api/health.version — see currentVersion() below.
 const ENGINE_TAG = 'latest';
 
-/**
- * Derive the Updater Console URL from the incoming HTTP request rather
- * than a hardcoded externalUrl. Reason: a browser hitting the admin UI
- * at http://192.168.0.122:3000 expects the "Open Updater Console" link
- * to go to http://192.168.0.122:3003, NOT to http://localhost:3003
- * (which is the BROWSER's localhost, not the SignalK box's).
- *
- * Honors X-Forwarded-Host when present (reverse-proxy setups). Strips
- * the port from the request's host before re-appending the engine
- * port — the admin UI and the engine container are on the same host
- * but different ports.
- *
- * If `config.externalUrl` was explicitly set to something other than
- * the default 'http://localhost:3003', the user is taking deliberate
- * control (custom reverse proxy, alternate hostname) — honor it.
- */
-export function resolveGuiUrl(req: Request, configuredUrl: string): string {
-  const isDefault = /^https?:\/\/localhost:3003\/?$/i.test(configuredUrl);
-  if (!isDefault) return configuredUrl;
+// signalk-server runs Network=host and the engine publishes its port on the
+// host at 127.0.0.1:ENGINE_PORT, so loopback ALWAYS reaches the co-located
+// engine from inside this container — no DNS, no mDNS. 127.0.0.1 (not
+// localhost) dodges IPv6 ::1-first resolution; the engine is published on IPv4.
+// This is what the server-side consumers (health probe, version fetch, console
+// proxy) hit — never a user-supplied hostname, which the slim engine image
+// can't resolve for .local/mDNS names.
+export const ENGINE_LOCAL_URL = `http://127.0.0.1:${ENGINE_PORT}`;
 
+/**
+ * Derive the browser-facing Updater Console URL from the incoming HTTP request.
+ * Reason: a browser hitting the admin UI at http://192.168.0.122:3000 expects
+ * the "Open Updater Console" link to go to http://192.168.0.122:3003, NOT to
+ * http://localhost:3003 (which is the BROWSER's localhost, not the SignalK box's).
+ * A .local/mDNS host works here because the BROWSER resolves it (Bonjour/Avahi),
+ * unlike the server-side probe which runs in a container that can't.
+ *
+ * Honors X-Forwarded-Host when present (reverse-proxy setups). Strips the port
+ * from the request's host before re-appending the engine port — the admin UI
+ * and the engine container are on the same host but different ports.
+ */
+export function resolveGuiUrl(req: Request): string {
   const forwarded = req.headers['x-forwarded-host'];
   const forwardedFirst = Array.isArray(forwarded) ? forwarded[0] : forwarded;
   const hostHeader = forwardedFirst || req.headers.host || `localhost:${ENGINE_PORT}`;
@@ -96,12 +98,12 @@ function errMsg(err: unknown): string {
  * to currentTag (which is "latest" — a floating tag the comparator treats
  * as undefined-version, no upgrade offered).
  */
-async function fetchEngineVersion(externalUrl: string): Promise<string | null> {
+async function fetchEngineVersion(baseUrl: string): Promise<string | null> {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 3000);
     try {
-      const res = await fetch(`${externalUrl.replace(/\/$/, '')}/api/health`, {
+      const res = await fetch(`${baseUrl.replace(/\/$/, '')}/api/health`, {
         signal: controller.signal,
       });
       if (!res.ok) return null;
@@ -174,7 +176,7 @@ export default function pluginFactory(app: ServerAPI): Plugin {
           // package.json at boot. Eliminates the previous hand-bumped
           // UPDATER_SERVER_VERSION constant, which silently went stale on
           // every engine release and forced an extra plugin PR per bump.
-          currentVersion: () => fetchEngineVersion(state.config.externalUrl),
+          currentVersion: () => fetchEngineVersion(ENGINE_LOCAL_URL),
           versionSource: containers.updates.sources.githubReleases(REPO),
           checkInterval: '24h',
         });
@@ -190,7 +192,7 @@ export default function pluginFactory(app: ServerAPI): Plugin {
       // the container is technically "running" but stuck/unhealthy. Never throw —
       // the plugin must never take signalk-server down.
       try {
-        const healthUrl = `${state.config.externalUrl.replace(/\/$/, '')}/api/health`;
+        const healthUrl = `${ENGINE_LOCAL_URL}/api/health`;
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), 5000);
         let reachable = false;
@@ -223,7 +225,7 @@ export default function pluginFactory(app: ServerAPI): Plugin {
 
     registerWithRouter(router: IRouter): void {
       router.get('/api/gui-url', (req: Request, res: Response) => {
-        res.json({ url: resolveGuiUrl(req, state.config.externalUrl) });
+        res.json({ url: resolveGuiUrl(req) });
       });
       router.get('/api/info', (_req: Request, res: Response) => {
         res.json({
@@ -231,7 +233,7 @@ export default function pluginFactory(app: ServerAPI): Plugin {
           containerName: CONTAINER_NAME,
           image: IMAGE,
           managedContainer: state.config.managedContainer,
-          externalUrl: state.config.externalUrl,
+          engineUrl: ENGINE_LOCAL_URL,
           // OperatorIntent — the channel the Quadlet tracks. The engine's
           // real running version is at /api/health on the engine itself
           // (not proxied here — callers go direct).
@@ -246,7 +248,7 @@ export default function pluginFactory(app: ServerAPI): Plugin {
       // details. Requires the engine UI to read <meta name="api-base"> for
       // all API calls — see signalk-updater-server release notes.
       const consoleProxy = createConsoleProxy({
-        getTargetUrl: () => state.config.externalUrl,
+        getTargetUrl: () => ENGINE_LOCAL_URL,
         publicPathPrefix: `${PLUGIN_PATH_PREFIX}${CONSOLE_MOUNT}`,
       });
       router.use(CONSOLE_MOUNT, consoleProxy);
