@@ -1,6 +1,6 @@
 /**
  * Same-origin reverse proxy from /plugins/signalk-updater/console/* to the
- * signalk-updater-server engine container (default http://localhost:3003).
+ * signalk-updater-server engine container over loopback (http://127.0.0.1:3003).
  *
  * Why same-origin: lets the embedded React panel in the SignalK admin UI
  * iframe the engine console without mixed-content (HTTPS-to-HTTP) or CORS

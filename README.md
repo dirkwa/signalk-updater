@@ -20,10 +20,10 @@ The heavy lifting (image listing, version switching, self-update, hardware UI) h
 
 ## Configuration
 
-| Field              | Default | Purpose                                                                                                                                                               |
-| ------------------ | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `managedContainer` | `false` | Advanced opt-in. If `true`, the plugin will (eventually) attempt to start the container itself. Default off — the bash installer's Quadlet is the authoritative path. |
-| `logLevel`         | `info`  | `error` \| `info` \| `debug`.                                                                                                                                         |
+| Field              | Default | Purpose                                                                                                                                                   |
+| ------------------ | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `managedContainer` | `false` | Advanced opt-in. If `true`, the plugin attempts to start the container itself instead of relying on the installer's Quadlet. Leave `false` in production. |
+| `logLevel`         | `info`  | `error` \| `info` \| `debug`.                                                                                                                             |
 
 ## Companion repos
 
