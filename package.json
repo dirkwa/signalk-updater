@@ -1,6 +1,6 @@
 {
   "name": "signalk-updater",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "description": "Thin-shell SignalK plugin that surfaces the signalk-updater-server console in the admin UI",
   "main": "plugin/index.js",
   "type": "module",
