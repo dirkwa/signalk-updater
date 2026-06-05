@@ -66,37 +66,133 @@ export function resolveGuiUrl(req: Request): string {
   return `${proto}://${hostname}:${ENGINE_PORT}`;
 }
 
-// The engine writes its bearer to ~/.signalk-updater/token (host, mode 0600),
-// bind-mounted into the engine container as /data/token. signalk-server runs
-// as the same user, so this plugin can read that host file directly. We use it
-// to backfill the engine bearer on proxied requests — see proxy.ts
-// getInjectToken. Override with SIGNALK_UPDATER_TOKEN_PATH for non-standard
-// installs (the bash installer lays it down at the default path).
+// Engine bearer resolution. The engine gates its mutating routes on its own
+// bearer; we backfill it server-side on proxied requests (see proxy.ts
+// getInjectToken). Two sources, tried in order:
+//
+//  1. Host token file (~/.signalk-updater/token, override:
+//     SIGNALK_UPDATER_TOKEN_PATH). The engine writes it (mode 0600) and reads
+//     it as /data/token. This is the proven source and works whenever the file
+//     is readable from this process — but inside the signalk-server container
+//     ~/.signalk-updater/token resolves to /home/node/.signalk-updater/token,
+//     which is NOT mounted, so the read fails there.
+//
+//  2. Loopback GET /api/session on the engine. The engine serves its bearer
+//     there, localhost-scoped by design; signalk-server runs Network=host so
+//     loopback always reaches the co-located engine (same transport
+//     fetchEngineVersion() uses for /api/health). This needs no host mount and
+//     is container-filesystem-independent — it's what fixes the in-container
+//     case where source (1) can't see the file.
+//
+// The token is install-stable, so the first success is cached for the process
+// lifetime. getInjectToken in proxy.ts is synchronous and on the hot request
+// path; we keep it sync by serving this cache and refreshing in the background.
 const ENGINE_TOKEN_PATH =
   process.env.SIGNALK_UPDATER_TOKEN_PATH ?? join(homedir(), '.signalk-updater', 'token');
 
 let cachedEngineToken: string | null = null;
+// Coalesces concurrent /api/session fetches so a burst of cache-missing
+// requests triggers exactly one loopback round-trip.
+let tokenRefreshInFlight: Promise<void> | null = null;
+
+/** Read a token from a file. Null on missing/unreadable/empty. */
+function readTokenFromFile(path: string): string | null {
+  try {
+    const raw = readFileSync(path, 'utf8').trim();
+    return raw.length > 0 ? raw : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
- * Read the engine bearer from the host token file, cached after the first
- * successful read (the token is install-stable). Returns null on any failure
- * — missing file, bad permissions, empty — so the proxy fails open and simply
- * forwards the request unchanged. We re-read on every miss rather than caching
- * the null, so a token that appears after signalk-server started (installer
- * ordering) is picked up on the next request without a restart.
+ * Extract the bearer from the engine's /api/session JSON ({ token: string }).
+ * Defensive against shape drift — returns null on anything that isn't a
+ * non-empty string token, so a malformed response fails open (proxy forwards
+ * unchanged) rather than injecting garbage.
  */
-function readEngineToken(): string | null {
-  if (cachedEngineToken !== null) return cachedEngineToken;
+function extractSessionToken(raw: unknown): string | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const token = (raw as Record<string, unknown>).token;
+  return typeof token === 'string' && token.length > 0 ? token : null;
+}
+
+/**
+ * Fetch the engine bearer over loopback from /api/session. 3s timeout (same as
+ * fetchEngineVersion) so a hung engine can't wedge the refresh. Returns null on
+ * any failure; callers must NOT cache the null, so a token that appears after a
+ * slow engine boot is still picked up on a later refresh.
+ */
+async function fetchEngineTokenFromSession(baseUrl: string): Promise<string | null> {
   try {
-    const raw = readFileSync(ENGINE_TOKEN_PATH, 'utf8').trim();
-    if (raw.length > 0) {
-      cachedEngineToken = raw;
-      return raw;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3000);
+    try {
+      const res = await fetch(`${baseUrl.replace(/\/$/, '')}/api/session`, {
+        signal: controller.signal,
+      });
+      if (!res.ok) return null;
+      const raw: unknown = await res.json();
+      return extractSessionToken(raw);
+    } finally {
+      clearTimeout(timer);
     }
   } catch {
-    // missing/unreadable token file — fail open, proxy forwards unchanged
+    return null;
   }
+}
+
+/**
+ * Resolve the engine bearer once and memoise it. Tries the host token file
+ * first (proven, no network), then /api/session over loopback (fixes the
+ * in-container case where the file isn't mounted). Only stores a non-null
+ * result, so a transient failure (engine still booting) is retried on the next
+ * call. Concurrent callers share one in-flight resolve.
+ */
+async function refreshEngineToken(baseUrl: string): Promise<void> {
+  if (cachedEngineToken !== null) return;
+  if (tokenRefreshInFlight) return tokenRefreshInFlight;
+  tokenRefreshInFlight = (async () => {
+    try {
+      const fromFile = readTokenFromFile(ENGINE_TOKEN_PATH);
+      const token = fromFile ?? (await fetchEngineTokenFromSession(baseUrl));
+      if (token) cachedEngineToken = token;
+    } finally {
+      tokenRefreshInFlight = null;
+    }
+  })();
+  return tokenRefreshInFlight;
+}
+
+/**
+ * Synchronous token getter for the proxy's hot path (proxy.ts getInjectToken).
+ * Returns the cached engine bearer, or null when it isn't primed yet. On a
+ * miss it kicks a non-blocking background refresh and fails open for THIS
+ * request (forward unchanged) — the token lands before the next mutating call.
+ * Never awaits, never throws.
+ *
+ * Fast path for the common (non-container) install: when the host token file
+ * is readable, read it synchronously so the very first request already injects
+ * — no first-request miss, identical to the old behavior. Only when the file
+ * is absent (the in-container case) do we fall back to the async-primed cache.
+ */
+function getEngineTokenSync(baseUrl: string): string | null {
+  if (cachedEngineToken !== null) return cachedEngineToken;
+  const fromFile = readTokenFromFile(ENGINE_TOKEN_PATH);
+  if (fromFile) {
+    cachedEngineToken = fromFile;
+    return fromFile;
+  }
+  // File absent (in-container): kick a non-blocking /api/session refresh and
+  // fail open for this request. Swallow rejection defensively.
+  void refreshEngineToken(baseUrl).catch(() => undefined);
   return null;
+}
+
+/** Test hook: reset the memoised engine token between cases. */
+export function __resetEngineTokenCacheForTest(): void {
+  cachedEngineToken = null;
+  tokenRefreshInFlight = null;
 }
 
 function getContainerManager(): ContainerManagerApi | undefined {
@@ -253,6 +349,14 @@ export default function pluginFactory(app: ServerAPI): Plugin {
       } catch (err) {
         app.setPluginError(`could not probe ${CONTAINER_NAME}: ${errMsg(err)}`);
       }
+
+      // Prime the engine bearer cache so the first mutating console request
+      // (settings/switch/lifecycle) already has a token to inject — avoids a
+      // first-request fail-open 401 in the in-container case where the token
+      // comes from /api/session over loopback (the host file isn't mounted).
+      // Best-effort: a failure here just means getEngineTokenSync primes it
+      // lazily on the first request instead. Not awaited — never block start().
+      void refreshEngineToken(ENGINE_LOCAL_URL).catch(() => undefined);
     },
 
     stop(): void {
@@ -295,7 +399,7 @@ export default function pluginFactory(app: ServerAPI): Plugin {
         // can't carry the engine's own token through signalk-server's auth
         // gate. Requests only reach here after that gate, so the client is
         // already authorized.
-        getInjectToken: readEngineToken,
+        getInjectToken: () => getEngineTokenSync(ENGINE_LOCAL_URL),
       });
       router.use(CONSOLE_MOUNT, consoleProxy);
     },

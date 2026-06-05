@@ -122,6 +122,46 @@ export function createConsoleProxy(opts: ProxyOptions) {
       }
     }
 
+    // Request-body forwarding. signalk-server mounts a global body-parser
+    // (express.json/urlencoded) that runs BEFORE this plugin router, so by the
+    // time we run, a body-carrying request's stream is already fully consumed:
+    // req.readableEnded === true and the req.pipe(proxyReq) below would forward
+    // ZERO bytes — while the client's Content-Length header (copied verbatim
+    // above) still announces N bytes. The engine (fastify) then blocks forever
+    // waiting for a body that never arrives => the proxy header-watchdog or the
+    // client times out => 502/000. GET/no-body requests have no Content-Length
+    // to wait on and the stream is never drained, so they were unaffected.
+    //
+    // Fix: when the stream is already drained, re-serialize the parsed body
+    // (req.body) by content-type and send it ourselves with a recomputed
+    // Content-Length. When the stream is still live (GET/no-body, SSE, an
+    // upgrade, or any path the global parser didn't consume), leave everything
+    // untouched and pipe as before.
+    const streamDrained = req.readableEnded;
+    const serializedBody = streamDrained
+      ? encodeParsedBody(req.headers['content-type'], req.body)
+      : null;
+    if (serializedBody) {
+      // We own the body now: pin Content-Type to what we actually serialized
+      // and Content-Length to its exact byte count. Delete first so a
+      // differently-cased incoming header can't survive alongside ours.
+      delete headers['content-length'];
+      delete headers['content-type'];
+      headers['content-type'] = serializedBody.contentType;
+      headers['content-length'] = String(serializedBody.buffer.byteLength);
+    } else if (streamDrained) {
+      // Stream drained but nothing to re-serialize: an empty parsed body
+      // (e.g. JSON `{}` — the engine's `POST /api/updates/check` payload), a
+      // content-type we don't re-encode, or a body the parser reduced away.
+      // Make the upstream request FULLY bodyless: drop BOTH Content-Length and
+      // Content-Type. Dropping only Content-Length is not enough — fastify
+      // rejects `Content-Type: application/json` with an empty body as
+      // 400 FST_ERR_CTP_EMPTY_JSON_BODY. With neither header, the engine treats
+      // it as a clean bodyless request and the empty pipe below adds no bytes.
+      delete headers['content-length'];
+      delete headers['content-type'];
+    }
+
     // Watchdog: arm before sending the request; the 'response' callback
     // (or any of the error paths below) clears it. If headers don't arrive
     // within the window we destroy the upstream socket and fail the client
@@ -229,8 +269,21 @@ export function createConsoleProxy(opts: ProxyOptions) {
       }
     });
 
-    // Forward the client request body (POST/PUT/etc) without buffering.
-    req.pipe(proxyReq);
+    // Forward the request body. Two cases (see the header block above):
+    //  - serializedBody !== null: the global body-parser already drained the
+    //    stream; write the re-serialized bytes ourselves (Content-Length/Type
+    //    were fixed up above) and end the upstream request.
+    //  - otherwise: the stream is still live (GET/no-body, SSE, upgrade, or an
+    //    unparsed path) OR it was drained with nothing to re-send. Pipe it
+    //    through unbuffered exactly as before — SSE and streaming paths are
+    //    untouched; a drained-empty stream simply contributes no bytes and
+    //    ends, and we already stripped Content-Length/Type so the engine
+    //    treats it as bodyless.
+    if (serializedBody) {
+      proxyReq.end(serializedBody.buffer);
+    } else {
+      req.pipe(proxyReq);
+    }
   };
 }
 
@@ -244,6 +297,84 @@ function filterAndCopyHeaders(
     out[k] = v;
   }
   return out;
+}
+
+/**
+ * Re-serialize a request body that signalk-server's global body-parser already
+ * consumed off the wire, so we can forward it to the engine with a correct
+ * Content-Length. Returns null when there is nothing meaningful to send (no
+ * parsed body, an empty parsed object, or a content-type we don't re-encode),
+ * in which case the caller forwards the request as fully bodyless.
+ *
+ * Only JSON and urlencoded are reconstructed — those are the two parsers
+ * signalk-server enables, and they're the only shapes whose original bytes are
+ * gone by the time this plugin runs. A body the global parser did NOT consume
+ * never reaches here: req.readableEnded is false for it, so the caller pipes.
+ *
+ * req.body is typed `any` by @types/express; we accept it as `unknown` here
+ * (an allowed widening that trips no no-explicit-any rule) and narrow with the
+ * user-defined type guards below.
+ */
+function encodeParsedBody(
+  contentType: string | string[] | undefined,
+  body: unknown,
+): { buffer: Buffer; contentType: string } | null {
+  const rawType = Array.isArray(contentType) ? contentType[0] : contentType;
+  const headerValue = rawType ?? '';
+  const type = headerValue.toLowerCase();
+
+  if (type.includes('application/json')) {
+    // express.json() sets body to {} for an empty/zero-length JSON request and
+    // can also yield a top-level array. An object with no keys has no bytes
+    // worth forwarding (and the engine 400s an empty-but-typed JSON body), so
+    // skip it; a non-empty object or any array is re-serialized faithfully.
+    // The engine's mutating routes take JSON objects today; arrays are covered
+    // for completeness so a future array payload round-trips rather than being
+    // silently dropped to bodyless.
+    if (!isNonEmptyObject(body) && !Array.isArray(body)) return null;
+    return {
+      buffer: Buffer.from(JSON.stringify(body), 'utf8'),
+      // Preserve the original charset/parameters when present.
+      contentType: headerValue || 'application/json',
+    };
+  }
+
+  if (type.includes('application/x-www-form-urlencoded')) {
+    // express.urlencoded({ extended: true }) (signalk-server's setting) can
+    // produce nested objects/arrays for keys like a[b]=1. We only faithfully
+    // rebuild a FLAT string map; anything richer can't be round-tripped here,
+    // so it falls through to null (bodyless). No engine route uses urlencoded,
+    // so this is a correctness floor, not a live path.
+    if (!isStringRecord(body)) return null;
+    const params = new URLSearchParams();
+    for (const [k, v] of Object.entries(body)) params.append(k, v);
+    const encoded = params.toString();
+    if (encoded.length === 0) return null;
+    return {
+      buffer: Buffer.from(encoded, 'utf8'),
+      contentType: headerValue || 'application/x-www-form-urlencoded',
+    };
+  }
+
+  // Any other content-type: either the parser didn't run (stream still live,
+  // handled by the pipe branch) or it's a shape we can't faithfully rebuild.
+  return null;
+}
+
+function isNonEmptyObject(value: unknown): value is Record<string, unknown> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.keys(value).length > 0
+  );
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
+  return Object.values(value).every((v) => typeof v === 'string');
 }
 
 /**
