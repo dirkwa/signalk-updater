@@ -277,6 +277,104 @@ describe('createConsoleProxy', () => {
     }
   });
 
+  it('injects the engine bearer when the client sends none', async () => {
+    const app = express();
+    const proxy = createConsoleProxy({
+      getTargetUrl: () => upstreamUrl,
+      publicPathPrefix: '/plugins/signalk-updater/console',
+      getInjectToken: () => 'engine-token-abc',
+    });
+    app.use('/console', proxy);
+    const server = app.listen(0);
+    await once(server, 'listening');
+    const addr = server.address() as AddressInfo;
+    try {
+      await fetch(`http://127.0.0.1:${addr.port}/console/api/health`);
+      const last = upstreamRequests[upstreamRequests.length - 1];
+      expect(last?.headers['authorization']).toBe('Bearer engine-token-abc');
+      expect(last?.headers['x-sk-auth']).toBe('engine-token-abc');
+    } finally {
+      server.close();
+      await once(server, 'close');
+    }
+  });
+
+  it('does not clobber a client-supplied bearer', async () => {
+    const app = express();
+    const proxy = createConsoleProxy({
+      getTargetUrl: () => upstreamUrl,
+      publicPathPrefix: '/plugins/signalk-updater/console',
+      getInjectToken: () => 'engine-token-abc',
+    });
+    app.use('/console', proxy);
+    const server = app.listen(0);
+    await once(server, 'listening');
+    const addr = server.address() as AddressInfo;
+    try {
+      await fetch(`http://127.0.0.1:${addr.port}/console/api/health`, {
+        headers: { Authorization: 'Bearer client-own-token' },
+      });
+      const last = upstreamRequests[upstreamRequests.length - 1];
+      expect(last?.headers['authorization']).toBe('Bearer client-own-token');
+      // X-SK-Auth is only set as part of injection; an un-injected request
+      // keeps whatever the client sent (here, nothing).
+      expect(last?.headers['x-sk-auth']).toBeUndefined();
+    } finally {
+      server.close();
+      await once(server, 'close');
+    }
+  });
+
+  it('does not clobber a client-supplied X-SK-Auth (no bearer)', async () => {
+    const app = express();
+    const proxy = createConsoleProxy({
+      getTargetUrl: () => upstreamUrl,
+      publicPathPrefix: '/plugins/signalk-updater/console',
+      getInjectToken: () => 'engine-token-abc',
+    });
+    app.use('/console', proxy);
+    const server = app.listen(0);
+    await once(server, 'listening');
+    const addr = server.address() as AddressInfo;
+    try {
+      await fetch(`http://127.0.0.1:${addr.port}/console/api/health`, {
+        headers: { 'X-SK-Auth': 'client-sk-token' },
+      });
+      const last = upstreamRequests[upstreamRequests.length - 1];
+      // The engine authenticates on X-SK-Auth alone, so a client using only
+      // that header must survive — injection must not overwrite it (nor add a
+      // conflicting Authorization).
+      expect(last?.headers['x-sk-auth']).toBe('client-sk-token');
+      expect(last?.headers['authorization']).toBeUndefined();
+    } finally {
+      server.close();
+      await once(server, 'close');
+    }
+  });
+
+  it('forwards unchanged when no token is available (fail-open)', async () => {
+    const app = express();
+    const proxy = createConsoleProxy({
+      getTargetUrl: () => upstreamUrl,
+      publicPathPrefix: '/plugins/signalk-updater/console',
+      getInjectToken: () => null,
+    });
+    app.use('/console', proxy);
+    const server = app.listen(0);
+    await once(server, 'listening');
+    const addr = server.address() as AddressInfo;
+    try {
+      const res = await fetch(`http://127.0.0.1:${addr.port}/console/api/health`);
+      expect(res.status).toBe(200);
+      const last = upstreamRequests[upstreamRequests.length - 1];
+      expect(last?.headers['authorization']).toBeUndefined();
+      expect(last?.headers['x-sk-auth']).toBeUndefined();
+    } finally {
+      server.close();
+      await once(server, 'close');
+    }
+  });
+
   it('returns 502 with a helpful message when the upstream is unreachable', async () => {
     const app = express();
     const proxy = createConsoleProxy({

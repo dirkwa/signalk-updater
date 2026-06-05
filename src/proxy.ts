@@ -53,6 +53,26 @@ interface ProxyOptions {
   getTargetUrl: () => string;
   /** Public-facing path prefix where this proxy is mounted, used for the api-base meta tag (e.g. "/plugins/signalk-updater/console"). */
   publicPathPrefix: string;
+  /**
+   * Returns the engine's bearer token, or null when it can't be read.
+   *
+   * Every request reaching this proxy has already cleared signalk-server's
+   * own auth gate (the proxy is mounted on the plugin router, which is behind
+   * that gate), so the client is authorized. But the engine's mutating routes
+   * gate on their OWN bearer (`/data/token`), which the browser can't supply
+   * in the embedded iframe: the engine's `/api/session` is reached through
+   * this same proxy, and when signalk-server security is enabled an
+   * unauthenticated tab never gets past the outer gate to load it. The result
+   * is a silent 401 on every settings/switch/lifecycle write — see the engine
+   * repo's "Show beta does nothing" investigation.
+   *
+   * We close that gap server-side: read the engine token (the host file the
+   * engine itself reads as `/data/token`) and inject it as the upstream
+   * Authorization when the client didn't already send a bearer. Optional and
+   * fail-open — null means "forward unchanged", so reads keep working and the
+   * only regression is the pre-existing 401 on writes.
+   */
+  getInjectToken?: () => string | null;
 }
 
 export function createConsoleProxy(opts: ProxyOptions) {
@@ -84,6 +104,23 @@ export function createConsoleProxy(opts: ProxyOptions) {
     // Strip Accept-Encoding so the engine sends uncompressed bodies. This
     // keeps HTML rewriting simple (no gunzip step) and is fine on localhost.
     delete headers['accept-encoding'];
+
+    // Backfill the engine bearer when the client didn't already send one.
+    // Only when absent, so a real caller-supplied token (standalone/direct
+    // use) wins and we never clobber it. The engine accepts the token via
+    // EITHER Authorization: Bearer OR X-SK-Auth (see the engine's
+    // extractToken), so a client authenticating with either header must be
+    // left untouched — we set both only when both are absent. Fail-open: a
+    // null token forwards unchanged.
+    const hasBearer = /^Bearer\s+\S/i.test(String(headers['authorization'] ?? ''));
+    const hasSkAuth = String(headers['x-sk-auth'] ?? '').trim().length > 0;
+    if (!hasBearer && !hasSkAuth) {
+      const token = opts.getInjectToken?.() ?? null;
+      if (token) {
+        headers['authorization'] = `Bearer ${token}`;
+        headers['x-sk-auth'] = token;
+      }
+    }
 
     // Watchdog: arm before sending the request; the 'response' callback
     // (or any of the error paths below) clears it. If headers don't arrive

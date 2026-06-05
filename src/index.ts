@@ -1,5 +1,8 @@
 import type { Plugin, ServerAPI } from '@signalk/server-api';
 import type { IRouter, Request, Response } from 'express';
+import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import type { ContainerManagerApi } from './types.js';
 import { ConfigSchema, SCHEMA_DEFAULTS, type Config } from './config/schema.js';
 import { createConsoleProxy } from './proxy.js';
@@ -61,6 +64,39 @@ export function resolveGuiUrl(req: Request): string {
     (req.headers['x-forwarded-proto'] as string | undefined)?.split(',')[0]?.trim() ||
     (req.secure ? 'https' : 'http');
   return `${proto}://${hostname}:${ENGINE_PORT}`;
+}
+
+// The engine writes its bearer to ~/.signalk-updater/token (host, mode 0600),
+// bind-mounted into the engine container as /data/token. signalk-server runs
+// as the same user, so this plugin can read that host file directly. We use it
+// to backfill the engine bearer on proxied requests — see proxy.ts
+// getInjectToken. Override with SIGNALK_UPDATER_TOKEN_PATH for non-standard
+// installs (the bash installer lays it down at the default path).
+const ENGINE_TOKEN_PATH =
+  process.env.SIGNALK_UPDATER_TOKEN_PATH ?? join(homedir(), '.signalk-updater', 'token');
+
+let cachedEngineToken: string | null = null;
+
+/**
+ * Read the engine bearer from the host token file, cached after the first
+ * successful read (the token is install-stable). Returns null on any failure
+ * — missing file, bad permissions, empty — so the proxy fails open and simply
+ * forwards the request unchanged. We re-read on every miss rather than caching
+ * the null, so a token that appears after signalk-server started (installer
+ * ordering) is picked up on the next request without a restart.
+ */
+function readEngineToken(): string | null {
+  if (cachedEngineToken !== null) return cachedEngineToken;
+  try {
+    const raw = readFileSync(ENGINE_TOKEN_PATH, 'utf8').trim();
+    if (raw.length > 0) {
+      cachedEngineToken = raw;
+      return raw;
+    }
+  } catch {
+    // missing/unreadable token file — fail open, proxy forwards unchanged
+  }
+  return null;
 }
 
 function getContainerManager(): ContainerManagerApi | undefined {
@@ -254,6 +290,12 @@ export default function pluginFactory(app: ServerAPI): Plugin {
       const consoleProxy = createConsoleProxy({
         getTargetUrl: () => ENGINE_LOCAL_URL,
         publicPathPrefix: `${PLUGIN_PATH_PREFIX}${CONSOLE_MOUNT}`,
+        // Backfill the engine bearer so mutating console calls (settings,
+        // switch, lifecycle) work in the embedded iframe, where the browser
+        // can't carry the engine's own token through signalk-server's auth
+        // gate. Requests only reach here after that gate, so the client is
+        // already authorized.
+        getInjectToken: readEngineToken,
       });
       router.use(CONSOLE_MOUNT, consoleProxy);
     },
