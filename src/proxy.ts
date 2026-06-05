@@ -106,12 +106,15 @@ export function createConsoleProxy(opts: ProxyOptions) {
     delete headers['accept-encoding'];
 
     // Backfill the engine bearer when the client didn't already send one.
-    // Only when absent, so a real caller-supplied bearer (standalone/direct
+    // Only when absent, so a real caller-supplied token (standalone/direct
     // use) wins and we never clobber it. The engine accepts the token via
-    // either Authorization: Bearer or X-SK-Auth; set both to match what the
-    // engine's own SPA sends. Fail-open: a null token forwards unchanged.
+    // EITHER Authorization: Bearer OR X-SK-Auth (see the engine's
+    // extractToken), so a client authenticating with either header must be
+    // left untouched — we set both only when both are absent. Fail-open: a
+    // null token forwards unchanged.
     const hasBearer = /^Bearer\s+\S/i.test(String(headers['authorization'] ?? ''));
-    if (!hasBearer) {
+    const hasSkAuth = String(headers['x-sk-auth'] ?? '').trim().length > 0;
+    if (!hasBearer && !hasSkAuth) {
       const token = opts.getInjectToken?.() ?? null;
       if (token) {
         headers['authorization'] = `Bearer ${token}`;

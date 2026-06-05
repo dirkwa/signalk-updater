@@ -325,6 +325,33 @@ describe('createConsoleProxy', () => {
     }
   });
 
+  it('does not clobber a client-supplied X-SK-Auth (no bearer)', async () => {
+    const app = express();
+    const proxy = createConsoleProxy({
+      getTargetUrl: () => upstreamUrl,
+      publicPathPrefix: '/plugins/signalk-updater/console',
+      getInjectToken: () => 'engine-token-abc',
+    });
+    app.use('/console', proxy);
+    const server = app.listen(0);
+    await once(server, 'listening');
+    const addr = server.address() as AddressInfo;
+    try {
+      await fetch(`http://127.0.0.1:${addr.port}/console/api/health`, {
+        headers: { 'X-SK-Auth': 'client-sk-token' },
+      });
+      const last = upstreamRequests[upstreamRequests.length - 1];
+      // The engine authenticates on X-SK-Auth alone, so a client using only
+      // that header must survive — injection must not overwrite it (nor add a
+      // conflicting Authorization).
+      expect(last?.headers['x-sk-auth']).toBe('client-sk-token');
+      expect(last?.headers['authorization']).toBeUndefined();
+    } finally {
+      server.close();
+      await once(server, 'close');
+    }
+  });
+
   it('forwards unchanged when no token is available (fail-open)', async () => {
     const app = express();
     const proxy = createConsoleProxy({
