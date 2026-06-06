@@ -94,6 +94,10 @@ let cachedEngineToken: string | null = null;
 // Coalesces concurrent /api/session fetches so a burst of cache-missing
 // requests triggers exactly one loopback round-trip.
 let tokenRefreshInFlight: Promise<void> | null = null;
+// Bumped on every cache reset. A refresh captures the generation at start and
+// only commits its result if the generation is still current, so a refresh
+// that was in flight across a reset can't repopulate the just-cleared cache.
+let tokenRefreshGeneration = 0;
 
 /** Read a token from a file. Null on missing/unreadable/empty. */
 function readTokenFromFile(path: string): string | null {
@@ -152,13 +156,16 @@ async function fetchEngineTokenFromSession(baseUrl: string): Promise<string | nu
 async function refreshEngineToken(baseUrl: string): Promise<void> {
   if (cachedEngineToken !== null) return;
   if (tokenRefreshInFlight) return tokenRefreshInFlight;
+  const generation = tokenRefreshGeneration;
   tokenRefreshInFlight = (async () => {
     try {
       const fromFile = readTokenFromFile(ENGINE_TOKEN_PATH);
       const token = fromFile ?? (await fetchEngineTokenFromSession(baseUrl));
-      if (token) cachedEngineToken = token;
+      // Discard the result if a reset bumped the generation while we were
+      // awaiting — otherwise a stale refresh repopulates the cleared cache.
+      if (token && generation === tokenRefreshGeneration) cachedEngineToken = token;
     } finally {
-      tokenRefreshInFlight = null;
+      if (generation === tokenRefreshGeneration) tokenRefreshInFlight = null;
     }
   })();
   return tokenRefreshInFlight;
@@ -191,6 +198,9 @@ function getEngineTokenSync(baseUrl: string): string | null {
 
 /** Test hook: reset the memoised engine token between cases. */
 export function __resetEngineTokenCacheForTest(): void {
+  // Bump first so any refresh already in flight fences itself off and can't
+  // repopulate the cache after we clear it.
+  tokenRefreshGeneration += 1;
   cachedEngineToken = null;
   tokenRefreshInFlight = null;
 }
