@@ -231,6 +231,44 @@ function errMsg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+// Reachable but slower than this ⇒ a (green) "slow, likely I/O" status rather
+// than a clean bill of health. Observed-healthy is ~12ms; an SD-card-starved
+// engine answered in 2700–3800ms. Mirrors signalk-doctor-server SLOW_MS.
+const ENGINE_SLOW_MS = 1500;
+
+/**
+ * Probe the peer engine's own /api/health. Retries a transient failure twice
+ * (5s per attempt, ~2s apart) so a single slow/missed answer on a busy or
+ * SD-card-bound host doesn't flap the plugin to a red "not reachable" error —
+ * the same false-down the installer's one-shot checks used to produce. Returns
+ * `reachable`, plus `slowMs` (the successful attempt's duration) when that
+ * attempt exceeded ENGINE_SLOW_MS. Never throws.
+ */
+export async function probeEngineHealth(
+  healthUrl: string,
+): Promise<{ reachable: boolean; slowMs?: number }> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 2000));
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    const start = Date.now();
+    try {
+      const res = await fetch(healthUrl, { signal: controller.signal });
+      if (res.ok) {
+        const elapsed = Date.now() - start;
+        return elapsed > ENGINE_SLOW_MS
+          ? { reachable: true, slowMs: elapsed }
+          : { reachable: true };
+      }
+    } catch {
+      // transient — fall through to retry
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  return { reachable: false };
+}
+
 /**
  * Ask the engine container for its running semver via /api/health. Used as
  * the `currentVersion` callback on signalk-container's update registration —
@@ -339,21 +377,21 @@ export default function pluginFactory(app: ServerAPI): Plugin {
       // the plugin must never take signalk-server down.
       try {
         const healthUrl = `${ENGINE_LOCAL_URL}/api/health`;
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 5000);
-        let reachable = false;
-        try {
-          const res = await fetch(healthUrl, { signal: controller.signal });
-          reachable = res.ok;
-        } catch {
-          reachable = false;
-        } finally {
-          clearTimeout(timer);
-        }
-        if (!reachable) {
+        const probe = await probeEngineHealth(healthUrl);
+        if (!probe.reachable) {
+          // Genuinely down after retries.
           app.setPluginError(
             `${CONTAINER_NAME} is not reachable at ${healthUrl}. ` +
               `Run the bash installer or \`systemctl --user start ${CONTAINER_NAME}.service\`.`,
+          );
+        } else if (probe.slowMs !== undefined) {
+          // Reachable but slow — usually microSD I/O contention, not a fault.
+          // SignalK's plugin API has no warning tier, so this lands as a
+          // (green) status rather than a red error; the Doctor Console's
+          // storage-type probe carries the full SD-card detail.
+          app.setPluginStatus(
+            `${CONTAINER_NAME} reachable but slow (${probe.slowMs}ms) — likely disk I/O contention; ` +
+              `if this host runs off an SD card, a USB3/NVMe SSD removes it`,
           );
         }
       } catch (err) {
