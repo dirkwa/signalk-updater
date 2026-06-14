@@ -8,10 +8,9 @@
     further attribution.
 
     Design notes:
-      - Rendered to app-icon.png at build time. The PNG sits in the
-        admin-UI tile against a SignalK-blue (#003399) background; the
-        four corners outside the rx=20 rounded shape are filled with
-        white so they blend with the surrounding card, not the tile.
+      - Rendered to app-icon.png at build time. The four corners outside
+        the rx=20 rounded shape are transparent so the rounded icon
+        blends with whatever background it sits on (card or tile).
       - Blue gradient evokes deep water + sky.
       - Circular update arrow + center upward chevron = "newer
         version, click to apply".
@@ -26,10 +25,7 @@
     </clipPath>
   </defs>
 
-  <!-- White corners (entire viewBox is white, then the rounded gradient is clipped on top). -->
-  <rect width="128" height="128" fill="#ffffff"/>
-
-  <!-- Rounded gradient body. -->
+  <!-- Rounded gradient body (corners outside the rounded rect stay transparent). -->
   <g clip-path="url(#rounded)">
     <rect width="128" height="128" fill="url(#bg)"/>
 
