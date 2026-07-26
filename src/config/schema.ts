@@ -28,9 +28,10 @@ export const ConfigSchema = Type.Object({
   notificationIntervalSeconds: Type.Number({
     default: 60,
     minimum: 10,
+    maximum: 3600,
     title: 'Notification poll interval (seconds)',
     description:
-      'How often to poll the updater engine for status. Minimum 10s. ' +
+      'How often to poll the updater engine for status. 10s–3600s. ' +
       'Only used when "Publish updater notifications" is on.',
   }),
 });

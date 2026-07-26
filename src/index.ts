@@ -333,7 +333,11 @@ interface PluginInternalState {
 
 // Minimum poll interval; also the schema minimum. Guards against a mistyped
 // tiny interval hammering the engine.
+// Poll-interval bounds. The min guards against a mistyped tiny interval; the
+// max keeps intervalS*1000 within Node's 32-bit setInterval limit (~24.8 days)
+// — a larger value silently wraps to a rapid loop. Both mirror the schema.
 const MIN_POLL_INTERVAL_S = 10;
+const MAX_POLL_INTERVAL_S = 3600;
 
 /**
  * Start the status → SignalK notification poll loop. Guarded by the
@@ -354,7 +358,7 @@ function startNotificationPolling(state: PluginInternalState): void {
   // apply the floor.
   const raw = Math.floor(state.config.notificationIntervalSeconds);
   const seconds = Number.isFinite(raw) ? raw : SCHEMA_DEFAULTS.notificationIntervalSeconds;
-  const intervalS = Math.max(MIN_POLL_INTERVAL_S, seconds);
+  const intervalS = Math.min(MAX_POLL_INTERVAL_S, Math.max(MIN_POLL_INTERVAL_S, seconds));
 
   const stale = (): boolean => state.pollGeneration !== generation;
 
