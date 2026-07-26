@@ -20,10 +20,27 @@ The heavy lifting (image listing, version switching, self-update, hardware UI) h
 
 ## Configuration
 
-| Field              | Default | Purpose                                                                                                                                                   |
-| ------------------ | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `managedContainer` | `false` | Advanced opt-in. If `true`, the plugin attempts to start the container itself instead of relying on the installer's Quadlet. Leave `false` in production. |
-| `logLevel`         | `info`  | `error` \| `info` \| `debug`.                                                                                                                             |
+| Field                         | Default | Purpose                                                                                                                                                   |
+| ----------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `managedContainer`            | `false` | Advanced opt-in. If `true`, the plugin attempts to start the container itself instead of relying on the installer's Quadlet. Leave `false` in production. |
+| `logLevel`                    | `info`  | `error` \| `info` \| `debug`.                                                                                                                             |
+| `publishNotifications`        | `true`  | Republish the updater engine's `warn`/`fail` conditions as SignalK notifications. Turn off to keep updater status confined to the Updater Console.        |
+| `notificationIntervalSeconds` | `60`    | How often to poll the engine for status (minimum 10s). Only used when `publishNotifications` is on.                                                       |
+
+## Updater notifications
+
+When `publishNotifications` is on (the default), the plugin polls the engine's `GET /api/updater-status` and mirrors each **warn**/**fail** condition into the SignalK data model under `notifications.updater.<id>`, so alarm panels (KIP, etc.) surface them:
+
+| Condition (engine status)                                      | Notification `state` | `method`           |
+| -------------------------------------------------------------- | -------------------- | ------------------ |
+| update available on your channel / stale operation lock (warn) | `warn`               | `visual`           |
+| container stopped/unhealthy / failed self-update (fail)        | `alarm`              | `visual` + `sound` |
+| resolved (ok)                                                  | cleared → `normal`   | —                  |
+| couldn't-measure (unknown)                                     | not raised           | —                  |
+
+**Channel-aware update-available:** the engine decides "is a newer image available" against the channel you're running — a `dirkwa` user is warned on a newer `dirkwa` image (via image-digest drift), a `beta` user on a newer beta **or** stable, a stable user only on a newer stable, a `master` user on a moved master digest. This coexists with (and is more specific than) signalk-container's one-shot `notifications.plugins.signalk-updater.updateAvailable`.
+
+When a condition recovers, its notification is set to `state: normal`; the plugin also clears every active notification on `stop()`, so a shutdown never leaves a stale updater alarm latched. A transient engine-unreachable poll is skipped without clearing existing notifications. The plugin reaches the engine over loopback (`http://127.0.0.1:3003` by default; override the port with `SIGNALK_UPDATER_ENGINE_PORT`). `GET /api/updater-status` is read-only (token-or-localhost), so the loopback poll needs no token.
 
 ## Companion repos
 

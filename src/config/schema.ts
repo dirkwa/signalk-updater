@@ -14,6 +14,25 @@ export const ConfigSchema = Type.Object({
     default: 'info',
     title: 'Log level',
   }),
+  publishNotifications: Type.Boolean({
+    default: true,
+    title: 'Publish updater notifications',
+    description:
+      'Poll the updater engine and republish its warn/fail conditions ' +
+      '(update available on your channel, stale operation lock, a failed ' +
+      'self-update, a stopped/unhealthy container) as SignalK notifications ' +
+      'under notifications.updater.<id>, so alarm panels (KIP, etc.) surface ' +
+      'them. Cleared (state: normal) when a condition resolves. Disable to ' +
+      'keep updater status confined to the Updater Console.',
+  }),
+  notificationIntervalSeconds: Type.Number({
+    default: 60,
+    minimum: 10,
+    title: 'Notification poll interval (seconds)',
+    description:
+      'How often to poll the updater engine for status. Minimum 10s. ' +
+      'Only used when "Publish updater notifications" is on.',
+  }),
 });
 
 export type Config = Static<typeof ConfigSchema>;
@@ -21,4 +40,6 @@ export type Config = Static<typeof ConfigSchema>;
 export const SCHEMA_DEFAULTS: Config = {
   managedContainer: false,
   logLevel: 'info',
+  publishNotifications: true,
+  notificationIntervalSeconds: 60,
 };
