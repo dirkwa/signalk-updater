@@ -5,6 +5,7 @@ const fakeApp = {
   setPluginError: (_msg: string): void => undefined,
   debug: (_msg: string): void => undefined,
   error: (_msg: string): void => undefined,
+  handleMessage: (): void => undefined,
 } as unknown as Parameters<typeof pluginFactory>[0];
 
 describe('pluginFactory', () => {
