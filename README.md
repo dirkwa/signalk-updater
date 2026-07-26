@@ -20,6 +20,8 @@ The heavy lifting (image listing, version switching, self-update, hardware UI) h
 
 ## Configuration
 
+The plugin config schema (`src/config/schema.ts`) is the source of truth for defaults and constraints; this table is a summary.
+
 | Field                         | Default | Purpose                                                                                                                                                   |
 | ----------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `managedContainer`            | `false` | Advanced opt-in. If `true`, the plugin attempts to start the container itself instead of relying on the installer's Quadlet. Leave `false` in production. |
