@@ -139,7 +139,7 @@ export class ProbeNotifier {
   }
 
   /** Clear every still-active notification. Called from stop() so a plugin
-   *  shutdown doesn't leave stale doctor alarms latched in the data model. */
+   *  shutdown doesn't leave stale updater alarms latched in the data model. */
   clearAll(): void {
     for (const [id, label] of [...this.active]) {
       emit(this.app, this.pluginId, notificationPath(id), clearValue(label));

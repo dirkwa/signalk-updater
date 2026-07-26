@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { ServerAPI } from '@signalk/server-api';
 import { ProbeNotifier, fetchProbes, pollOnce } from '../src/probes-notify.js';
 
-const PLUGIN_ID = 'signalk-doctor';
+const PLUGIN_ID = 'signalk-updater';
 
 // Capture every handleMessage delta so tests can assert path + notification value.
 interface Emitted {
