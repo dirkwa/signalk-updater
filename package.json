@@ -51,12 +51,12 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
+    "@signalk/server-api": "^2.24.0",
     "@sinclair/typebox": "^0.34.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.0",
     "@module-federation/vite": "^1.15.0",
-    "@signalk/server-api": "^2.24.0",
     "@types/express": "^5.0.0",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
