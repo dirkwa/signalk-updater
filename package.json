@@ -41,8 +41,9 @@
   ],
   "scripts": {
     "build:plugin": "rimraf plugin && tsc -p tsconfig.json",
+    "typecheck:webapp": "tsc -p tsconfig.webapp.json",
     "build:webapp": "rimraf public && vite build",
-    "build": "npm run build:plugin && npm run build:webapp",
+    "build": "npm run build:plugin && npm run typecheck:webapp && npm run build:webapp",
     "build:all": "npm run lint && npm run build && npm test",
     "lint": "eslint src --max-warnings 0",
     "format": "prettier --write . && eslint src --fix",
